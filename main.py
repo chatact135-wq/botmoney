@@ -34,7 +34,7 @@ async def run_scalping_bot():
             await connection.wait_synchronized()
 
             print(
-                "Bot connected to MetaApi feed. Monitoring micro-swings (35s loop | 0.03 Lots | $3.50 Target)..."
+                "Bot connected to MetaApi feed. Monitoring micro-swings (35s loop | 0.03 Lots | $12.50 Target)..."
             )
 
             last_known_price = None
@@ -58,12 +58,12 @@ async def run_scalping_bot():
                         current_open_count = len(positions)
 
                         if current_open_count < MAX_CONCURRENT_TRADES:
-                            # Scalping Take Profit Parameters for 0.03 Lot Size
+                            # Scalping Take Profit Parameters for 0.03 Lot Size ($12.50 target falls right in the middle of $10-$15)
                             lot_size = 0.03
                             spread_offset = 0.27
-                            net_dollar_target = 3.50
+                            net_dollar_target = 12.50
 
-                            # $3.50 target on 0.03 lot = $1.167 price move + $0.27 spread = $1.44 total distance
+                            # $12.50 target on 0.03 lot = $4.16 price move + $0.27 spread = ~$4.43 total distance
                             price_move_target = net_dollar_target / (
                                 lot_size * 100
                             )
@@ -145,7 +145,7 @@ async def startup_event():
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
     status_text = (
-        "Active (35s Loop | 0.03 Lots | $3.50 Net Target | Max 50)"
+        "Active (35s Loop | 0.03 Lots | $12.50 Net Target | Max 50)"
         if is_bot_running
         else "Paused"
     )
@@ -166,7 +166,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Professional Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Live Broker Feed | 0.03 Lots | $3.50 Net Target | Max Cap: 50 Orders | 35s Loop</p>
+            <p>Execution: Live Broker Feed | 0.03 Lots | $12.50 Net Target ($10-$15 range) | Max Cap: 50 Orders | 35s Loop</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -176,7 +176,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint verifying 0.03 lot execution with correct TP."""
+    """Manual batch test endpoint verifying 0.03 lot execution with extended TP."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -188,12 +188,11 @@ async def test_order():
         await connection.connect()
         await connection.wait_synchronized()
 
-        # Fetch current price to calculate correct test TP
         price_info = await connection.get_symbol_price("XAUUSDm")
         ask = price_info.get("ask", 0)
 
-        # 0.03 Lot size -> $3.50 target = $1.44 total TP distance
-        test_tp = round(ask + 1.44, 2)
+        # 0.03 Lot size -> $12.50 target = ~$4.43 total TP distance
+        test_tp = round(ask + 4.43, 2)
         test_sl = round(ask - 15.00, 2)
 
         tasks = [
