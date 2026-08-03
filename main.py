@@ -30,7 +30,7 @@ async def run_scalping_bot():
             await connection.connect()
             await connection.wait_synchronized()
 
-            print("Bot connected to MetaApi feed. Monitoring micro-swings (35s loop)...")
+            print("Bot connected to MetaApi feed. Monitoring micro-swings (35s loop | 0.03 Lots | $3.50 Target)...")
 
             last_known_price = None
             MAX_CONCURRENT_TRADES = 50
@@ -52,11 +52,10 @@ async def run_scalping_bot():
                         
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             spread_offset = 0.27
-                            net_profit_target = 1.00
+                            net_profit_target = 3.50  # Updated to $3.50 net profit target
                             total_tp_distance = spread_offset + net_profit_target
                             
                             action = None
-                            # Ultra-sensitive micro-swing detection threshold
                             if price_delta <= -0.02:
                                 action = "BUY"
                                 entry = current_ask
@@ -72,18 +71,18 @@ async def run_scalping_bot():
                                 slots_available = MAX_CONCURRENT_TRADES - current_open_count
                                 burst_count = min(slots_available, 5) # Scale in waves of 5
                                 
-                                print(f"Trigger! Delta: {price_delta:.3f} -> Opening {burst_count} {action} orders.")
+                                print(f"Trigger! Delta: {price_delta:.3f} -> Opening {burst_count} {action} orders at 0.03 lots.")
                                 
                                 if action == "BUY":
                                     tasks = [
                                         connection.create_market_buy_order(
-                                            symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
+                                            symbol="XAUUSDm", volume=0.03, stop_loss=stop_loss, take_profit=take_profit
                                         ) for _ in range(burst_count)
                                     ]
                                 else:
                                     tasks = [
                                         connection.create_market_sell_order(
-                                            symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
+                                            symbol="XAUUSDm", volume=0.03, stop_loss=stop_loss, take_profit=take_profit
                                         ) for _ in range(burst_count)
                                     ]
                                     
@@ -91,7 +90,7 @@ async def run_scalping_bot():
                     
                     last_known_price = current_price
                 
-                # Precise 35-second polling interval requested
+                # Precise 35-second polling interval
                 await asyncio.sleep(35)
                 
         except Exception as e:
@@ -109,7 +108,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (35s Loop | Ultra-Sensitive Delta | Max 50)" if is_bot_running else "Paused"
+    status_text = "Active (35s Loop | 0.03 Lots | $3.50 Target | Max 50)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -127,7 +126,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Professional Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Live Broker Feed | $1.00 Net Target | Max Cap: 50 Orders | 35s Loop</p>
+            <p>Execution: Live Broker Feed | 0.03 Lots | $3.50 Net Target | Max Cap: 50 Orders | 35s Loop</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -137,7 +136,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint."""
+    """Manual batch test endpoint verifying 0.03 lot execution."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -151,8 +150,8 @@ async def test_order():
 
         tasks = [
             connection.create_market_buy_order(
-                symbol="XAUUSDm", volume=0.01, stop_loss=0, take_profit=0
-            ) for _ in range(5)
+                symbol="XAUUSDm", volume=0.03, stop_loss=0, take_profit=0
+            ) for _ in range(3)
         ]
         results = await asyncio.gather(*tasks)
         return {"status": "success", "batch_count": len(results), "orders": results}
