@@ -28,13 +28,13 @@ async def run_scalping_bot():
     await connection.connect()
     await connection.wait_synchronized()
 
-    print("Professional Direct-Broker Scalper initialized. 30-second loop active.")
+    print("Professional Direct-Broker Scalper initialized. Cap: 50 orders. 30-second loop active.")
 
-    MAX_CONCURRENT_TRADES = 10  # Strict cap of 10 open positions
+    MAX_CONCURRENT_TRADES = 50  # Updated maximum concurrent position cap to 50
 
     while is_bot_running:
         try:
-            # 1. Fetch live symbol price directly from MetaApi broker feed (No external API needed)
+            # 1. Fetch live symbol price directly from MetaApi broker feed
             price_info = await connection.get_symbol_price("XAUUSDm")
             current_bid = price_info.get("bid")
             current_ask = price_info.get("ask")
@@ -71,7 +71,8 @@ async def run_scalping_bot():
                             
                         if action:
                             slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                            burst_count = min(slots_available, 3) # Open up to 3 trades per trigger wave
+                            # Open up to 10 orders per wave to scale up efficiently toward 50
+                            burst_count = min(slots_available, 10)
                             
                             print(f"Micro-swing detected ({price_delta:.2f}). Launching burst of {burst_count} {action} orders...")
                             
@@ -110,7 +111,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Direct Broker Polling Active (30s Refresh | Max 10 Orders)" if is_bot_running else "Paused"
+    status_text = "Direct Broker Polling Active (30s Refresh | Max 50 Orders)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -128,7 +129,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Professional Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Direct MetaApi Feed | $1.00 Net Target | 30s Loop</p>
+            <p>Execution: Direct MetaApi Feed | $1.00 Net Target | Max Cap: 50 Orders | 30s Loop</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -138,7 +139,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint to verify 8 simultaneous trades instantly."""
+    """Manual batch test endpoint to verify 10 simultaneous trades instantly."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -153,7 +154,7 @@ async def test_order():
         tasks = [
             connection.create_market_buy_order(
                 symbol="XAUUSDm", volume=0.01, stop_loss=0, take_profit=0
-            ) for _ in range(8)
+            ) for _ in range(10)
         ]
         results = await asyncio.gather(*tasks)
         return {"status": "success", "batch_count": len(results), "orders": results}
