@@ -9,7 +9,7 @@ app = FastAPI(title="Gold Scalping System")
 
 # MetaApi Credentials & Configuration
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
-ACCOUNT_ID = "152756f9-2ced-4f37-b2f7-6d2f56b3..."
+ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
 
 
 @app.on_event("startup")
