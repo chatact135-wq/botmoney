@@ -1,44 +1,33 @@
+import asyncio
 import os
 from metaapi_cloud_sdk import MetaApi
 
-# Initialize MetaApi client using environment variables
-METAAPI_TOKEN = os.getenv("METAAPI_TOKEN")
-METAAPI_ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
+# Replace with your token and the ID from your screenshot
+TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
+ACCOUNT_ID = "152756f9-2ced-4f37-b2f7-6d2f56b3..."
 
-async def execute_metaapi_trade(signal):
-    """Bridges the algorithmic signal directly to MT5 via MetaApi cloud WebSocket"""
-    if not METAAPI_TOKEN or not METAAPI_ACCOUNT_ID:
-        print("[METAFAPI WARNING]: Token or Account ID not found in environment variables.")
-        return
 
-    try:
-        metaapi = MetaApi(METAAPI_TOKEN)
-        account = await metaapi.metatrader_account_api.get_account(METAAPI_ACCOUNT_ID)
-        
-        # Ensure account is connected
-        if account.state != 'DEPLOYED':
-            await account.deploy()
-        
-        connection = account.get_rpc_connection()
-        await connection.connect()
-        await connection.wait_synchronized()
+async def test_order():
+  metaapi = MetaApi(TOKEN)
+  account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
 
-        # Execute market order with MetaApi
-        if signal["action"] == "BUY":
-            result = await connection.create_market_buy_order(
-                symbol="XAUUSD",
-                volume=signal["lot_size"],
-                stop_loss=signal["stop_loss"],
-                take_profit=signal["take_profit"]
-            )
-        else:
-            result = await connection.create_market_sell_order(
-                symbol="XAUUSD",
-                volume=signal["lot_size"],
-                stop_loss=signal["stop_loss"],
-                take_profit=signal["take_profit"]
-            )
-        
-        print(f"[METAFAPI SUCCESS]: Order executed. Result: {result}")
-    except Exception as e:
-        print(f"[METAAPI EXECUTION ERROR]: {e}")
+  if account.state != "DEPLOYED":
+    await account.deploy()
+
+  connection = account.get_rpc_connection()
+  await connection.connect()
+  await connection.wait_synchronized()
+
+  print("Connected successfully! Placing test market order...")
+  result = await connection.create_market_buy_order(
+      symbol="EURUSD",
+      volume=0.01,
+      stop_loss=0,
+      take_profit=0,
+      comment="Test Bot Order",
+  )
+  print(f"Order executed successfully: {result}")
+
+
+if __name__ == "__main__":
+  asyncio.run(test_order())
