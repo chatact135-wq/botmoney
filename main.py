@@ -14,14 +14,14 @@ ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
 
 @app.on_event("startup")
 async def startup_event():
-  # Initialize your database on app startup
-  init_db()
+    # Initialize your database on app startup
+    init_db()
 
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-  """Main monitoring dashboard displaying active and past scalp trades."""
-  html_content = """
+    """Main monitoring dashboard displaying active and past scalp trades."""
+    html_content = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -42,37 +42,36 @@ async def read_dashboard():
     </body>
     </html>
     """
-  return html_content
+    return html_content
 
 
 @app.get("/test-order")
 async def test_order():
-  """Temporary test endpoint to verify MetaApi/Exness trade execution."""
-  try:
-    metaapi = MetaApi(TOKEN)
-    account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
+    """Temporary test endpoint to verify MetaApi/Exness trade execution."""
+    try:
+        metaapi = MetaApi(TOKEN)
+        account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
 
-    if account.state != "DEPLOYED":
-      await account.deploy()
+        if account.state != "DEPLOYED":
+            await account.deploy()
 
-    connection = account.get_rpc_connection()
-    await connection.connect()
-    await connection.wait_synchronized()
+        connection = account.get_rpc_connection()
+        await connection.connect()
+        await connection.wait_synchronized()
 
-    # Execute a tiny 0.01 lot test buy on Gold (XAUUSD)
-    result = await connection.create_market_buy_order(
-        symbol="XAUUSD",
-        volume=0.01,
-        stop_loss=0,
-        take_profit=0,
-        comment="Test Scalper Order",
-    )
-    return {"status": "success", "order": result}
-  except Exception as e:
-    raise HTTPException(status_code=500, detail=str(e))
+        # Execute a tiny 0.01 lot test buy on Gold with the correct Exness suffix
+        result = await connection.create_market_buy_order(
+            symbol="XAUUSDm",
+            volume=0.01,
+            stop_loss=0,
+            take_profit=0,
+        )
+        return {"status": "success", "order": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
-  import uvicorn
+    import uvicorn
 
-  uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
