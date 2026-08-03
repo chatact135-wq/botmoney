@@ -4,4 +4,4 @@ sqlalchemy==2.0.28
 pandas==2.2.3
 numpy==1.26.4
 requests==2.31.0
-pydantic==2.6.4
+pydantic==2.7.4
