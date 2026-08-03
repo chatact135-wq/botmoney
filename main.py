@@ -12,93 +12,91 @@ ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
 
 bot_task = None
 is_bot_running = False
-last_known_price = None
 
 async def run_scalping_bot():
-    global is_bot_running, last_known_price
+    global is_bot_running
     is_bot_running = True
     
-    metaapi = MetaApi(TOKEN)
-    account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
-
-    if account.state != "DEPLOYED":
-        await account.deploy()
-
-    connection = account.get_rpc_connection()
-    await connection.connect()
-    await connection.wait_synchronized()
-
-    print("Professional Direct-Broker Scalper initialized. Cap: 50 orders. 30-second loop active.")
-
-    MAX_CONCURRENT_TRADES = 50  # Updated maximum concurrent position cap to 50
-
     while is_bot_running:
+        connection = None
         try:
-            # 1. Fetch live symbol price directly from MetaApi broker feed
-            price_info = await connection.get_symbol_price("XAUUSDm")
-            current_bid = price_info.get("bid")
-            current_ask = price_info.get("ask")
-            
-            if current_bid and current_ask:
-                current_price = (current_bid + current_ask) / 2.0
+            metaapi = MetaApi(TOKEN)
+            account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
+
+            if account.state != "DEPLOYED":
+                await account.deploy()
+
+            connection = account.get_rpc_connection()
+            await connection.connect()
+            await connection.wait_synchronized()
+
+            print("Bot connected to MetaApi feed. Monitoring micro-swings (35s loop)...")
+
+            last_known_price = None
+            MAX_CONCURRENT_TRADES = 50
+
+            while is_bot_running:
+                price_info = await connection.get_symbol_price("XAUUSDm")
+                current_bid = price_info.get("bid")
+                current_ask = price_info.get("ask")
                 
-                if last_known_price is not None:
-                    price_delta = current_price - last_known_price
+                if current_bid and current_ask:
+                    current_price = (current_bid + current_ask) / 2.0
                     
-                    # Check open positions count
-                    positions = await connection.get_positions()
-                    current_open_count = len(positions)
-                    
-                    if current_open_count < MAX_CONCURRENT_TRADES:
-                        spread_offset = 0.27
-                        net_profit_target = 1.00  # $1.00 net target per order
-                        total_tp_distance = spread_offset + net_profit_target
+                    if last_known_price is not None:
+                        price_delta = current_price - last_known_price
+                        print(f"Current Price: {current_price} | Delta: {price_delta:.3f}")
                         
-                        action = None
-                        # Micro-swing down detection -> Buy the dip
-                        if price_delta <= -0.05:
-                            action = "BUY"
-                            entry = current_ask
-                            stop_loss = round(entry - 15.00, 2)
-                            take_profit = round(entry + total_tp_distance, 2)
+                        positions = await connection.get_positions()
+                        current_open_count = len(positions)
                         
-                        # Micro-swing up detection -> Sell the spike
-                        elif price_delta >= 0.05:
-                            action = "SELL"
-                            entry = current_bid
-                            stop_loss = round(entry + 15.00, 2)
-                            take_profit = round(entry - total_tp_distance, 2)
+                        if current_open_count < MAX_CONCURRENT_TRADES:
+                            spread_offset = 0.27
+                            net_profit_target = 1.00
+                            total_tp_distance = spread_offset + net_profit_target
                             
-                        if action:
-                            slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                            # Open up to 10 orders per wave to scale up efficiently toward 50
-                            burst_count = min(slots_available, 10)
-                            
-                            print(f"Micro-swing detected ({price_delta:.2f}). Launching burst of {burst_count} {action} orders...")
-                            
-                            if action == "BUY":
-                                tasks = [
-                                    connection.create_market_buy_order(
-                                        symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
-                                    ) for _ in range(burst_count)
-                                ]
-                            else:
-                                tasks = [
-                                    connection.create_market_sell_order(
-                                        symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
-                                    ) for _ in range(burst_count)
-                                ]
+                            action = None
+                            # Ultra-sensitive micro-swing detection threshold
+                            if price_delta <= -0.02:
+                                action = "BUY"
+                                entry = current_ask
+                                stop_loss = round(entry - 15.00, 2)
+                                take_profit = round(entry + total_tp_distance, 2)
+                            elif price_delta >= 0.02:
+                                action = "SELL"
+                                entry = current_bid
+                                stop_loss = round(entry + 15.00, 2)
+                                take_profit = round(entry - total_tp_distance, 2)
                                 
-                            await asyncio.gather(*tasks)
-                            print("Batch execution completed successfully.")
+                            if action:
+                                slots_available = MAX_CONCURRENT_TRADES - current_open_count
+                                burst_count = min(slots_available, 5) # Scale in waves of 5
+                                
+                                print(f"Trigger! Delta: {price_delta:.3f} -> Opening {burst_count} {action} orders.")
+                                
+                                if action == "BUY":
+                                    tasks = [
+                                        connection.create_market_buy_order(
+                                            symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
+                                        ) for _ in range(burst_count)
+                                    ]
+                                else:
+                                    tasks = [
+                                        connection.create_market_sell_order(
+                                            symbol="XAUUSDm", volume=0.01, stop_loss=stop_loss, take_profit=take_profit
+                                        ) for _ in range(burst_count)
+                                    ]
+                                    
+                                await asyncio.gather(*tasks)
+                    
+                    last_known_price = current_price
                 
-                last_known_price = current_price
+                # Precise 35-second polling interval requested
+                await asyncio.sleep(35)
                 
         except Exception as e:
-            print(f"Error in direct broker polling loop: {e}")
-            
-        # 30-second refresh interval
-        await asyncio.sleep(30)
+            print(f"Connection or loop error: {e}. Reconnecting in 10 seconds...")
+            await asyncio.sleep(10)
 
 
 @app.on_event("startup")
@@ -111,7 +109,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Direct Broker Polling Active (30s Refresh | Max 50 Orders)" if is_bot_running else "Paused"
+    status_text = "Active (35s Loop | Ultra-Sensitive Delta | Max 50)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -129,7 +127,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Professional Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Direct MetaApi Feed | $1.00 Net Target | Max Cap: 50 Orders | 30s Loop</p>
+            <p>Execution: Live Broker Feed | $1.00 Net Target | Max Cap: 50 Orders | 35s Loop</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -139,7 +137,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint to verify 10 simultaneous trades instantly."""
+    """Manual batch test endpoint."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -154,7 +152,7 @@ async def test_order():
         tasks = [
             connection.create_market_buy_order(
                 symbol="XAUUSDm", volume=0.01, stop_loss=0, take_profit=0
-            ) for _ in range(10)
+            ) for _ in range(5)
         ]
         results = await asyncio.gather(*tasks)
         return {"status": "success", "batch_count": len(results), "orders": results}
