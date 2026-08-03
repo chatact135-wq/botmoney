@@ -16,7 +16,6 @@ ACCOUNT_ID = "152756f9-2ced-4f37-b2f7-6d2f56b3..."
 async def startup_event():
   # Initialize your database on app startup
   init_db()
-  # You can also start your background polling loop here if configured
 
 
 @app.get("/", response_class=HTMLResponse)
