@@ -47,10 +47,10 @@ def scalping_engine(df):
         return {
             "action": "BUY",
             "entry": current_price,
-            "stop_loss": round(current_price - 15.00, 2),  # Wide initial SL to breathe
-            "take_profit": round(current_price + total_tp_distance, 2),  # Covers spread + nets target
+            "stop_loss": round(current_price - 15.00, 2),  
+            "take_profit": round(current_price + total_tp_distance, 2),  
             "lot_size": 0.01,
-            "reason": f"Scalp Buy: EMA Cross (TP adjusted for spread)"
+            "reason": f"Aggressive Scalp Buy: EMA Cross"
         }
 
     # Bearish Scalp Cross (Fast EMA crosses below Slow EMA)
@@ -58,10 +58,10 @@ def scalping_engine(df):
         return {
             "action": "SELL",
             "entry": current_price,
-            "stop_loss": round(current_price + 15.00, 2),  # Wide initial SL to breathe
-            "take_profit": round(current_price - total_tp_distance, 2),  # Covers spread + nets target
+            "stop_loss": round(current_price + 15.00, 2),  
+            "take_profit": round(current_price - total_tp_distance, 2),  
             "lot_size": 0.01,
-            "reason": f"Scalp Sell: EMA Cross (TP adjusted for spread)"
+            "reason": f"Aggressive Scalp Sell: EMA Cross"
         }
 
     return None
