@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 from engines import fetch_live_tick_data, scalping_engine
 
-app = FastAPI(title="Gold Hyper-Aggressive Scalper")
+app = FastAPI(title="Gold Professional Scalping System")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -28,18 +28,19 @@ async def run_scalping_bot():
     await connection.connect()
     await connection.wait_synchronized()
 
-    print("Hyper-Aggressive bot loop started.")
+    print("Professional Scalping Bot loop initialized. Refresh rate: 30 seconds.")
 
-    MAX_CONCURRENT_TRADES = 10  # Keeps up to 10 trades running
+    MAX_CONCURRENT_TRADES = 10  # Strict cap of 10 orders max
 
     while is_bot_running:
         try:
             df = fetch_live_tick_data(symbol="XAU/USD")
             
-            if df is not None and len(df) >= 15:
+            if df is not None and len(df) >= 5:
                 positions = await connection.get_positions()
                 current_open_count = len(positions)
                 
+                # Check if we are safely below our 10-trade limit
                 if current_open_count < MAX_CONCURRENT_TRADES:
                     signal = scalping_engine(df)
                     
@@ -50,12 +51,11 @@ async def run_scalping_bot():
                         take_profit = signal["take_profit"]
                         
                         slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                        # Fire up to 8 trades at once in a single wave if slots permit
-                        burst_count = min(slots_available, 8)
+                        # Open up to 3 orders per swing trigger to maintain smooth scaling
+                        burst_count = min(slots_available, 3)
                         
-                        print(f"Trigger found ({signal['reason']}). Launching parallel burst of {burst_count} trades...")
+                        print(f"Signal detected ({signal['reason']}). Executing parallel batch of {burst_count} orders...")
                         
-                        # Create concurrent tasks to place all orders simultaneously
                         if action == "BUY":
                             tasks = [
                                 connection.create_market_buy_order(
@@ -69,15 +69,15 @@ async def run_scalping_bot():
                                 ) for _ in range(burst_count)
                             ]
                             
-                        # Execute all orders together at the exact same millisecond
+                        # Execute concurrently via asyncio to prevent network latency bottlenecks
                         await asyncio.gather(*tasks)
-                        print("Burst execution complete.")
+                        print("Batch execution successful.")
                         
         except Exception as e:
-            print(f"Error in bot loop: {e}")
+            print(f"Error in professional bot loop: {e}")
             
-        # Check every 5 seconds for hyper-fast execution
-        await asyncio.sleep(5)
+        # Precise 30-second loop refresh interval as requested
+        await asyncio.sleep(30)
 
 
 @app.on_event("startup")
@@ -90,26 +90,26 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Hyper-Aggressive Mode Active (8-10 Trades)" if is_bot_running else "Paused"
+    status_text = "Active (30s Refresh | Max 10 Orders | $1 Target)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Hyper-Aggressive Scalper</title>
-        <meta http-equiv="refresh" content="10">
+        <title>Gold Professional Scalper</title>
+        <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
-            h1 {{ color: #e74c3c; }}
+            h1 {{ color: #f39c12; }}
             .container {{ max-width: 800px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
             .status {{ color: #2ecc71; font-weight: bold; }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>Gold Hyper-Aggressive Scalper</h1>
+            <h1>Gold Professional Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Parallel Batching (Up to 8-10 simultaneous trades on momentum stretch)</p>
-            <p><em>Auto-refreshing every 10 seconds...</em></p>
+            <p>Strategy: Micro-swing up/down detection | $1.00 Net Target | 30s Refresh Loop</p>
+            <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
     </html>
@@ -118,7 +118,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint to verify 8 simultaneous trades instantly."""
+    """Manual test endpoint to check execution functionality."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -130,14 +130,10 @@ async def test_order():
         await connection.connect()
         await connection.wait_synchronized()
 
-        # Fire 8 buy orders simultaneously
-        tasks = [
-            connection.create_market_buy_order(
-                symbol="XAUUSDm", volume=0.01, stop_loss=0, take_profit=0
-            ) for _ in range(8)
-        ]
-        results = await asyncio.gather(*tasks)
-        return {"status": "success", "batch_count": len(results), "orders": results}
+        result = await connection.create_market_buy_order(
+            symbol="XAUUSDm", volume=0.01, stop_loss=0, take_profit=0
+        )
+        return {"status": "success", "order": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
