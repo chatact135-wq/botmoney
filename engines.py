@@ -3,8 +3,9 @@ import pandas as pd
 import requests
 
 def fetch_live_tick_data(symbol="XAU/USD"):
+    """Fetches fast 1-minute data for short-term micro-swings"""
     api_key = os.getenv("TWELVEDATA_API_KEY", "demo")
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=30&apikey={api_key}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=20&apikey={api_key}"
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -20,41 +21,43 @@ def fetch_live_tick_data(symbol="XAU/USD"):
 
 def scalping_engine(df):
     """
-    Hyper-aggressive scalper: triggers whenever price stretches away from the 5 EMA,
-    targeting a quick $0.55 net profit capture.
+    Detects short-term price swings (up or down) without needing a full trend.
+    Calculates exact Take Profit to lock in a net $1.00 profit after spread.
     """
-    if df is None or len(df) < 15:
+    if df is None or len(df) < 5:
         return None
 
-    df['ema_fast'] = df['close'].ewm(span=5, adjust=False).mean()
-    
     current_price = df['close'].iloc[-1]
-    current_ema = df['ema_fast'].iloc[-1]
+    prev_close = df['close'].iloc[-2]
     
+    # Micro-movement delta (price change from previous candle)
+    price_delta = current_price - prev_close
+
+    # Gold parameters
     spread_offset = 0.27
-    net_profit_target = 0.55
+    net_profit_target = 1.00  # $1.00 net profit target per order
     total_tp_distance = spread_offset + net_profit_target
 
-    # Distance deviation check: if price dips below EMA fast by $0.20+, trigger a aggressive BUY
-    if current_price < current_ema - 0.20:
+    # Detect downward momentum / micro-swing down -> Buy the dip
+    if price_delta <= -0.15:
         return {
             "action": "BUY",
             "entry": current_price,
-            "stop_loss": round(current_price - 10.00, 2),
+            "stop_loss": round(current_price - 12.00, 2),
             "take_profit": round(current_price + total_tp_distance, 2),
             "lot_size": 0.01,
-            "reason": "Aggressive Dip Buy"
+            "reason": "Micro-Swing Dip Buy"
         }
 
-    # If price surges above EMA fast by $0.20+, trigger an aggressive SELL
-    elif current_price > current_ema + 0.20:
+    # Detect upward momentum / micro-swing up -> Sell the spike
+    elif price_delta >= 0.15:
         return {
             "action": "SELL",
             "entry": current_price,
-            "stop_loss": round(current_price + 10.00, 2),
+            "stop_loss": round(current_price + 12.00, 2),
             "take_profit": round(current_price - total_tp_distance, 2),
             "lot_size": 0.01,
-            "reason": "Aggressive Surge Sell"
+            "reason": "Micro-Swing Spike Sell"
         }
 
     return None
