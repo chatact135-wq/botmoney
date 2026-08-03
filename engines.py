@@ -3,9 +3,8 @@ import pandas as pd
 import requests
 
 def fetch_live_tick_data(symbol="XAU/USD"):
-    """Fetches fast 1-minute data for scalping via TwelveData or similar feed"""
     api_key = os.getenv("TWELVEDATA_API_KEY", "demo")
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=50&apikey={api_key}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=30&apikey={api_key}"
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -21,47 +20,41 @@ def fetch_live_tick_data(symbol="XAU/USD"):
 
 def scalping_engine(df):
     """
-    High-frequency scalping logic adjusted for Gold spread (~$0.27 avg)
-    to guarantee a net profit of ~$0.55 per trade.
+    Hyper-aggressive scalper: triggers whenever price stretches away from the 5 EMA,
+    targeting a quick $0.55 net profit capture.
     """
-    if df is None or len(df) < 20:
+    if df is None or len(df) < 15:
         return None
 
-    # Calculate 5 EMA and 13 EMA for rapid scalping cross
     df['ema_fast'] = df['close'].ewm(span=5, adjust=False).mean()
-    df['ema_slow'] = df['close'].ewm(span=13, adjust=False).mean()
     
     current_price = df['close'].iloc[-1]
-    prev_fast = df['ema_fast'].iloc[-2]
-    curr_fast = df['ema_fast'].iloc[-1]
-    prev_slow = df['ema_slow'].iloc[-2]
-    curr_slow = df['ema_slow'].iloc[-1]
-
-    # Spread offset configuration for Gold
+    current_ema = df['ema_fast'].iloc[-1]
+    
     spread_offset = 0.27
     net_profit_target = 0.55
-    total_tp_distance = spread_offset + net_profit_target  # ~$0.82 total move
+    total_tp_distance = spread_offset + net_profit_target
 
-    # Bullish Scalp Cross (Fast EMA crosses above Slow EMA)
-    if prev_fast <= prev_slow and curr_fast > curr_slow:
+    # Distance deviation check: if price dips below EMA fast by $0.20+, trigger a aggressive BUY
+    if current_price < current_ema - 0.20:
         return {
             "action": "BUY",
             "entry": current_price,
-            "stop_loss": round(current_price - 15.00, 2),  
-            "take_profit": round(current_price + total_tp_distance, 2),  
+            "stop_loss": round(current_price - 10.00, 2),
+            "take_profit": round(current_price + total_tp_distance, 2),
             "lot_size": 0.01,
-            "reason": f"Aggressive Scalp Buy: EMA Cross"
+            "reason": "Aggressive Dip Buy"
         }
 
-    # Bearish Scalp Cross (Fast EMA crosses below Slow EMA)
-    elif prev_fast >= prev_slow and curr_fast < curr_slow:
+    # If price surges above EMA fast by $0.20+, trigger an aggressive SELL
+    elif current_price > current_ema + 0.20:
         return {
             "action": "SELL",
             "entry": current_price,
-            "stop_loss": round(current_price + 15.00, 2),  
-            "take_profit": round(current_price - total_tp_distance, 2),  
+            "stop_loss": round(current_price + 10.00, 2),
+            "take_profit": round(current_price - total_tp_distance, 2),
             "lot_size": 0.01,
-            "reason": f"Aggressive Scalp Sell: EMA Cross"
+            "reason": "Aggressive Surge Sell"
         }
 
     return None
