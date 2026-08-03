@@ -13,15 +13,18 @@ ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
 bot_task = None
 is_bot_running = False
 
+
 async def run_scalping_bot():
     global is_bot_running
     is_bot_running = True
-    
+
     while is_bot_running:
         connection = None
         try:
             metaapi = MetaApi(TOKEN)
-            account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
+            account = await metaapi.metatrader_account_api.get_account(
+                ACCOUNT_ID
+            )
 
             if account.state != "DEPLOYED":
                 await account.deploy()
@@ -30,7 +33,9 @@ async def run_scalping_bot():
             await connection.connect()
             await connection.wait_synchronized()
 
-            print("Bot connected to MetaApi feed. Monitoring micro-swings (35s loop | 0.03 Lots | $3.50 Target)...")
+            print(
+                "Bot connected to MetaApi feed. Monitoring micro-swings (35s loop | 0.03 Lots | $3.50 Target)..."
+            )
 
             last_known_price = None
             MAX_CONCURRENT_TRADES = 50
@@ -39,62 +44,93 @@ async def run_scalping_bot():
                 price_info = await connection.get_symbol_price("XAUUSDm")
                 current_bid = price_info.get("bid")
                 current_ask = price_info.get("ask")
-                
+
                 if current_bid and current_ask:
                     current_price = (current_bid + current_ask) / 2.0
-                    
+
                     if last_known_price is not None:
                         price_delta = current_price - last_known_price
-                        print(f"Current Price: {current_price} | Delta: {price_delta:.3f}")
-                        
+                        print(
+                            f"Current Price: {current_price} | Delta: {price_delta:.3f}"
+                        )
+
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
-                        
+
                         if current_open_count < MAX_CONCURRENT_TRADES:
+                            # Scalping Take Profit Parameters for 0.03 Lot Size
+                            lot_size = 0.03
                             spread_offset = 0.27
-                            net_profit_target = 3.50  # Updated to $3.50 net profit target
-                            total_tp_distance = spread_offset + net_profit_target
-                            
+                            net_dollar_target = 3.50
+
+                            # $3.50 target on 0.03 lot = $1.167 price move + $0.27 spread = $1.44 total distance
+                            price_move_target = net_dollar_target / (
+                                lot_size * 100
+                            )
+                            total_tp_distance = round(
+                                spread_offset + price_move_target, 2
+                            )
+
                             action = None
                             if price_delta <= -0.02:
                                 action = "BUY"
                                 entry = current_ask
                                 stop_loss = round(entry - 15.00, 2)
-                                take_profit = round(entry + total_tp_distance, 2)
+                                take_profit = round(
+                                    entry + total_tp_distance, 2
+                                )
                             elif price_delta >= 0.02:
                                 action = "SELL"
                                 entry = current_bid
                                 stop_loss = round(entry + 15.00, 2)
-                                take_profit = round(entry - total_tp_distance, 2)
-                                
+                                take_profit = round(
+                                    entry - total_tp_distance, 2
+                                )
+
                             if action:
-                                slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                                burst_count = min(slots_available, 5) # Scale in waves of 5
-                                
-                                print(f"Trigger! Delta: {price_delta:.3f} -> Opening {burst_count} {action} orders at 0.03 lots.")
-                                
+                                slots_available = (
+                                    MAX_CONCURRENT_TRADES - current_open_count
+                                )
+                                burst_count = min(
+                                    slots_available, 5
+                                )  # Scale in waves of 5
+
+                                print(
+                                    f"Trigger! Delta: {price_delta:.3f} -> Opening {burst_count} {action} orders at {lot_size} lots (TP: {take_profit})."
+                                )
+
                                 if action == "BUY":
                                     tasks = [
                                         connection.create_market_buy_order(
-                                            symbol="XAUUSDm", volume=0.03, stop_loss=stop_loss, take_profit=take_profit
-                                        ) for _ in range(burst_count)
+                                            symbol="XAUUSDm",
+                                            volume=lot_size,
+                                            stop_loss=stop_loss,
+                                            take_profit=take_profit,
+                                        )
+                                        for _ in range(burst_count)
                                     ]
                                 else:
                                     tasks = [
                                         connection.create_market_sell_order(
-                                            symbol="XAUUSDm", volume=0.03, stop_loss=stop_loss, take_profit=take_profit
-                                        ) for _ in range(burst_count)
+                                            symbol="XAUUSDm",
+                                            volume=lot_size,
+                                            stop_loss=stop_loss,
+                                            take_profit=take_profit,
+                                        )
+                                        for _ in range(burst_count)
                                     ]
-                                    
+
                                 await asyncio.gather(*tasks)
-                    
+
                     last_known_price = current_price
-                
-                # Precise 35-second polling interval
+
+                # 35-second polling loop
                 await asyncio.sleep(35)
-                
+
         except Exception as e:
-            print(f"Connection or loop error: {e}. Reconnecting in 10 seconds...")
+            print(
+                f"Connection or loop error: {e}. Reconnecting in 10 seconds..."
+            )
             await asyncio.sleep(10)
 
 
@@ -108,7 +144,11 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (35s Loop | 0.03 Lots | $3.50 Target | Max 50)" if is_bot_running else "Paused"
+    status_text = (
+        "Active (35s Loop | 0.03 Lots | $3.50 Net Target | Max 50)"
+        if is_bot_running
+        else "Paused"
+    )
     return f"""
     <!DOCTYPE html>
     <html>
@@ -136,7 +176,7 @@ async def read_dashboard():
 
 @app.get("/test-order")
 async def test_order():
-    """Manual batch test endpoint verifying 0.03 lot execution."""
+    """Manual batch test endpoint verifying 0.03 lot execution with correct TP."""
     try:
         metaapi = MetaApi(TOKEN)
         account = await metaapi.metatrader_account_api.get_account(ACCOUNT_ID)
@@ -148,10 +188,22 @@ async def test_order():
         await connection.connect()
         await connection.wait_synchronized()
 
+        # Fetch current price to calculate correct test TP
+        price_info = await connection.get_symbol_price("XAUUSDm")
+        ask = price_info.get("ask", 0)
+
+        # 0.03 Lot size -> $3.50 target = $1.44 total TP distance
+        test_tp = round(ask + 1.44, 2)
+        test_sl = round(ask - 15.00, 2)
+
         tasks = [
             connection.create_market_buy_order(
-                symbol="XAUUSDm", volume=0.03, stop_loss=0, take_profit=0
-            ) for _ in range(3)
+                symbol="XAUUSDm",
+                volume=0.03,
+                stop_loss=test_sl,
+                take_profit=test_tp,
+            )
+            for _ in range(3)
         ]
         results = await asyncio.gather(*tasks)
         return {"status": "success", "batch_count": len(results), "orders": results}
@@ -161,4 +213,5 @@ async def test_order():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
