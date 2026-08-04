@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Recovery Grid with Momentum Filter")
+app = FastAPI(title="Gold Recovery Grid with Capped Risk Engine")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -78,8 +78,8 @@ async def run_scalping_bot():
     MAX_CONCURRENT_TRADES = 10
     
     # Momentum Engine Parameters
-    TREND_WINDOW = 30          # Historical buffer for trend calculation
-    MIN_POINT_TRIGGER = 1.0    # Requires at least a 1.0 full point directional push on Gold to trigger
+    TREND_WINDOW = 30          
+    MIN_POINT_TRIGGER = 1.0    
     
     while is_bot_running:
         connection = None
@@ -99,7 +99,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Recovery Grid Scalper with Momentum Filter active (Max Cap: 10 Trades)...")
+            print("Recovery Grid Scalper with Capped Risk Engine active (Max Cap: 10 Trades)...")
 
             price_history = []
 
@@ -115,12 +115,8 @@ async def run_scalping_bot():
                     if len(price_history) > TREND_WINDOW:
                         price_history.pop(0)
                         
-                    # Evaluate only when we have filled our trend window history
                     if len(price_history) == TREND_WINDOW and is_bot_running:
-                        # 1. Baseline moving average trend filter
                         sma_trend = sum(price_history) / len(price_history)
-                        
-                        # 2. Check short-term momentum (comparing current price against 6 ticks ago)
                         short_term_baseline = price_history[-6]
                         point_movement = current_price - short_term_baseline
                         
@@ -133,7 +129,6 @@ async def run_scalping_bot():
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            # Filter triggers: Needs real point distance AND alignment with market trend baseline
                             if point_movement >= MIN_POINT_TRIGGER and current_price > sma_trend:
                                 action = "BUY"
                                 entry = current_ask
@@ -142,27 +137,31 @@ async def run_scalping_bot():
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"Momentum Signal Triggered! Step {current_open_count + 1} | Action: {action} | Move: {point_movement:.2f} pts | Vol: {active_lot_size}")
+                                print(f"Capped Risk Signal | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size}")
                                 
                                 spread_offset = 0.27
-                                net_dollar_target = 10.0  # Increased target payout per leg to match larger point sweeps
+                                net_dollar_target = 10.0  
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
+                                # STRICT LOSS CAP: Hard stop loss set safely so max drawdown per lot stays strictly controlled
+                                # For 0.5 lots, a 4.0 point SL restricts maximum risk exposure per trade.
+                                max_sl_distance = 4.0 
+                                
                                 if action == "BUY":
                                     take_profit = round(entry + total_tp_distance, 2)
-                                    stop_loss = round(entry - 4.00, 2)  # Tighter protective SL since entries require genuine momentum
+                                    stop_loss = round(entry - max_sl_distance, 2)
                                     await connection.create_market_buy_order(
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                                 else:
                                     take_profit = round(entry - total_tp_distance, 2)
-                                    stop_loss = round(entry + 4.00, 2)
+                                    stop_loss = round(entry + max_sl_distance, 2)
                                     await connection.create_market_sell_order(
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                 
-                await asyncio.sleep(2)  # Slower poll rate to monitor genuine trend development
+                await asyncio.sleep(2)  
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -179,12 +178,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Momentum Grid + Dynamic Profit-Lock | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (Capped Risk Grid + Dynamic Profit-Lock | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Momentum & Dynamic SL Scalper</title>
+        <title>Gold Capped Risk Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -198,9 +197,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Momentum & Dynamic SL Scalper (10 Cap)</h1>
+            <h1>Gold Capped Risk Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | 1.0+ Point Momentum Filter</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Strict Hard Stop-Loss Risk Cap</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
