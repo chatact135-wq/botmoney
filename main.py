@@ -22,7 +22,7 @@ async def position_management_loop():
     
     while is_bot_running:
         try:
-            if global_connection:
+            if global_connection and is_bot_running:
                 positions = await global_connection.get_positions()
                 for pos in positions:
                     pos_id = pos.get("id")
@@ -109,7 +109,7 @@ async def run_scalping_bot():
                     if len(price_history) > 4:
                         price_history.pop(0)
                         
-                    if len(price_history) == 4:
+                    if len(price_history) == 4 and is_bot_running:
                         tick_move = current_price - price_history[0]
                         
                         positions = await connection.get_positions()
@@ -135,7 +135,7 @@ async def run_scalping_bot():
                                 stop_loss = round(entry + 12.00, 2)
                                 take_profit = round(entry - total_tp_distance, 2)
                                 
-                            if action:
+                            if action and is_bot_running:
                                 slots_available = MAX_CONCURRENT_TRADES - current_open_count
                                 burst_count = min(slots_available, 2)
                                 
@@ -185,6 +185,9 @@ async def read_dashboard():
             h1 {{ color: #f39c12; }}
             .container {{ max-width: 800px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
             .status {{ color: #2ecc71; font-weight: bold; }}
+            .btn {{ display: inline-block; padding: 10px 20px; margin: 10px; font-size: 16px; font-weight: bold; color: #fff; text-decoration: none; border-radius: 5px; }}
+            .btn-pause {{ background-color: #e74c3c; }}
+            .btn-resume {{ background-color: #2ecc71; }}
         </style>
     </head>
     <body>
@@ -192,11 +195,32 @@ async def read_dashboard():
             <h1>Gold Profit-Lock Scalper (250 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
             <p>Execution: 1s Profit-Lock Worker | Initial SL/TP | Max Cap: 250 Orders</p>
-            <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
+            <br>
+            <a href="/pause" class="btn btn-pause">Pause Bot</a>
+            <a href="/resume" class="btn btn-resume">Resume Bot</a>
+            <p style="margin-top:20px; font-size:12px; color:#888;"><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
     </html>
     """
+
+
+@app.get("/pause")
+async def pause_bot():
+    """Temporarily pause the trading bot."""
+    global is_bot_running
+    is_bot_running = False
+    return {"status": "success", "message": "Bot has been paused. Go to /resume to restart."}
+
+
+@app.get("/resume")
+async def resume_bot():
+    """Resume the trading bot."""
+    global bot_task, is_bot_running
+    is_bot_running = True
+    if not bot_task or bot_task.done():
+        bot_task = asyncio.create_task(run_scalping_bot())
+    return {"status": "success", "message": "Bot has been resumed."}
 
 
 @app.get("/test-order")
