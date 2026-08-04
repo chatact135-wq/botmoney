@@ -5,16 +5,80 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Adaptive Scalper with Ultra-Fast Trailing SL & Max 75 Cap")
+app = FastAPI(title="Gold Adaptive Scalper with Dedicated 3s Trailing Engine")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
 
 bot_task = None
+management_task = None
 is_bot_running = False
+global_connection = None
+
+async def position_management_loop():
+    """Dedicated background worker running strictly every 3 seconds to update trailing stop losses."""
+    global is_bot_running, global_connection
+    print("Dedicated 3-Second Trailing SL Manager started...")
+    
+    while is_bot_running:
+        try:
+            if global_connection:
+                positions = await global_connection.get_positions()
+                for pos in positions:
+                    pos_id = pos.get("id")
+                    profit = pos.get("profit", 0.0)
+                    pos_type = pos.get("type") # Can be string or numeric depending on SDK payload
+                    open_py = pos.get("openPrice")
+                    current_sl = pos.get("stopLoss", 0.0)
+                    current_tp = pos.get("takeProfit", 0.0)
+                    
+                    # Normalize position type check (handles both string and int representations from MetaApi)
+                    is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
+                    is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
+                    
+                    if is_buy:
+                        if profit >= 6.0:
+                            desired_sl = round(open_py + 1.50, 2)
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] BUY {pos_id} profit reached ${profit:.2f} -> Trailed SL to {desired_sl}")
+                        elif profit >= 4.0:
+                            desired_sl = round(open_py + 1.00, 2)
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] BUY {pos_id} profit reached ${profit:.2f} -> Trailed SL to {desired_sl}")
+                        elif profit >= 1.25:
+                            desired_sl = round(open_py + 0.35, 2) # Breakeven + spread buffer
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] BUY {pos_id} secured at breakeven/profit SL -> {desired_sl}")
+                                
+                    elif is_sell:
+                        if profit >= 6.0:
+                            desired_sl = round(open_py - 1.50, 2)
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] SELL {pos_id} profit reached ${profit:.2f} -> Trailed SL to {desired_sl}")
+                        elif profit >= 4.0:
+                            desired_sl = round(open_py - 1.00, 2)
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] SELL {pos_id} profit reached ${profit:.2f} -> Trailed SL to {desired_sl}")
+                        elif profit >= 1.25:
+                            desired_sl = round(open_py - 0.35, 2) # Breakeven + spread buffer
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                print(f"[3s Trailing] SELL {pos_id} secured at breakeven/profit SL -> {desired_sl}")
+                                
+        except Exception as e:
+            # Suppress minor connection blips during fast checks
+            pass
+            
+        await asyncio.sleep(3)  # Hard 3-second cadence
+
 
 async def run_scalping_bot():
-    global is_bot_running
+    global is_bot_running, global_connection, management_task
     is_bot_running = True
     
     while is_bot_running:
@@ -29,71 +93,19 @@ async def run_scalping_bot():
             connection = account.get_rpc_connection()
             await connection.connect()
             await connection.wait_synchronized()
+            
+            global_connection = connection
 
-            print("Adaptive Scalper + Ultra-Fast Trailing SL Manager active (3s Loop | Max 75 Cap)...")
+            # Start the independent 3-second trailing engine if not running
+            if not management_task or management_task.done():
+                management_task = asyncio.create_task(position_management_loop())
+
+            print("Adaptive Scalper active. Monitoring trends and entries (Max Cap: 75)...")
 
             price_history = []
-            MAX_CONCURRENT_TRADES = 75  # Updated max cap to 75 trades
+            MAX_CONCURRENT_TRADES = 75  # Updated cap to 75 trades
 
             while is_bot_running:
-                # 1. Ultra-Fast Position Management Loop (Checks every 3 seconds inline)
-                for _ in range(11): # Run management sub-loop 11 times (3 seconds * 11 = 33s, matching loop rhythm)
-                    if not is_bot_running:
-                        break
-                    try:
-                        positions = await connection.get_positions()
-                        for pos in positions:
-                            pos_id = pos.get("id")
-                            profit = pos.get("profit", 0.0)
-                            pos_type = pos.get("type") # 0 for BUY, 1 for SELL
-                            open_price = pos.get("openPrice")
-                            current_sl = pos.get("stopLoss", 0)
-                            current_tp = pos.get("takeProfit", 0)
-                            
-                            lot_size = 0.03
-                            
-                            # Dynamic Trailing Stop Logic for BUY orders
-                            if pos_type == 0: 
-                                if profit >= 6.0:
-                                    desired_sl = round(open_price + 1.50, 2) # Secure higher profit lock if hitting $6+
-                                    if current_sl < desired_sl:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Trailing SL Updated [BUY {pos_id}]: Profit at ${profit:.2f} -> Locked SL to {desired_sl}")
-                                elif profit >= 4.0:
-                                    desired_sl = round(open_price + 1.00, 2) # Secure profit lock at $4+
-                                    if current_sl < desired_sl:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Trailing SL Updated [BUY {pos_id}]: Profit at ${profit:.2f} -> Locked SL to {desired_sl}")
-                                elif profit >= 1.25:
-                                    desired_sl = round(open_price + 0.35, 2) # Secure breakeven + spread ($1.25+)
-                                    if current_sl < desired_sl:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Secured [BUY {pos_id}]: Moved SL to Breakeven/Profit ({desired_sl})")
-                                        
-                            # Dynamic Trailing Stop Logic for SELL orders
-                            elif pos_type == 1: 
-                                if profit >= 6.0:
-                                    desired_sl = round(open_price - 1.50, 2) # Secure higher profit lock if hitting $6+
-                                    if current_sl > desired_sl or current_sl == 0:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Trailing SL Updated [SELL {pos_id}]: Profit at ${profit:.2f} -> Locked SL to {desired_sl}")
-                                elif profit >= 4.0:
-                                    desired_sl = round(open_price - 1.00, 2) # Secure profit lock at $4+
-                                    if current_sl > desired_sl or current_sl == 0:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Trailing SL Updated [SELL {pos_id}]: Profit at ${profit:.2f} -> Locked SL to {desired_sl}")
-                                elif profit >= 1.25:
-                                    desired_sl = round(open_price - 0.35, 2) # Secure breakeven + spread ($1.25+)
-                                    if current_sl > desired_sl or current_sl == 0:
-                                        await connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                        print(f"Secured [SELL {pos_id}]: Moved SL to Breakeven/Profit ({desired_sl})")
-                                        
-                    except Exception as pos_err:
-                        print(f"Position stop-loss management error: {pos_err}")
-                    
-                    await asyncio.sleep(3) # Check every 3 seconds!
-
-                # 2. Fetch current price feed for new entries after management block
                 price_info = await connection.get_symbol_price("XAUUSDm")
                 current_bid = price_info.get("bid")
                 current_ask = price_info.get("ask")
@@ -113,7 +125,8 @@ async def run_scalping_bot():
                         is_aggressive_uptrend = net_trend_move >= 0.25
                         is_aggressive_downtrend = net_trend_move <= -0.25
                         
-                        current_open_count = len(await connection.get_positions())
+                        positions = await connection.get_positions()
+                        current_open_count = len(positions)
                         
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             lot_size = 0.03
@@ -170,6 +183,9 @@ async def run_scalping_bot():
                                     
                                 await asyncio.gather(*tasks)
                 
+                # Main entry loop polling interval
+                await asyncio.sleep(35)
+                
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 10 seconds...")
             await asyncio.sleep(10)
@@ -185,7 +201,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Ultra-Fast Trailing SL | Max 75 Cap)" if is_bot_running else "Paused"
+    status_text = "Active (Dedicated 3s Trailing SL Engine | Max 75 Cap)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -203,7 +219,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Adaptive Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: 3s Trailing SL Loop | 0.03 Lots | Max Cap: 75 Orders</p>
+            <p>Execution: Dedicated 3s Trailing SL Worker | 0.03 Lots | Max Cap: 75 Orders</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
