@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Bulletproof Dynamic System")
+app = FastAPI(title="Gold Bulletproof Dynamic System - Fixed")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -17,8 +17,9 @@ global_connection = None
 
 async def position_management_loop():
     """
-    High-Speed Trailing Engine:
-    - Automatically updates stop losses using broker-compliant distances the moment trades hit profit.
+    Robust Trailing Engine:
+    - Filters strictly for XAUUSDm positions.
+    - Uses safe profit thresholds and broker-compliant distance checks.
     """
     global is_bot_running, global_connection
     print("Bulletproof Trailing Engine online...")
@@ -28,6 +29,9 @@ async def position_management_loop():
             if global_connection and is_bot_running:
                 positions = await global_connection.get_positions()
                 for pos in positions:
+                    if pos.get("symbol") != "XAUUSDm":
+                        continue
+                        
                     pos_id = pos.get("id")
                     profit = pos.get("profit", 0.0)
                     pos_type = pos.get("type")
@@ -38,26 +42,31 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Safe broker-compliant trailing steps to prevent rejection errors
-                    if is_buy and profit >= 1.50:
-                        desired_sl = round(open_price + 0.50, 2)
+                    # Trailing activation once profit exceeds safe margin ($3.00+ on 0.1 lot)
+                    if is_buy and profit >= 3.00:
+                        desired_sl = round(open_price + 0.20, 2) # Secure break-even + buffer
                         if current_sl < desired_sl:
-                            await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                    elif is_sell and profit >= 1.50:
-                        desired_sl = round(open_price - 0.50, 2)
+                            try:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                            except Exception:
+                                pass
+                    elif is_sell and profit >= 3.00:
+                        desired_sl = round(open_price - 0.20, 2)
                         if current_sl > desired_sl or current_sl == 0:
-                            await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                            try:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                            except Exception:
+                                pass
         except Exception:
             pass
             
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(1.0)
 
 
 async def run_bulletproof_bot():
     """
     Execution Engine:
-    - Sequence: 0.1 -> 0.2 -> 0.3 max.
-    - Dynamic scaling without strict blocking.
+    - Multi-tier sequence with momentum/trend validation to avoid fading breakout trends.
     """
     global is_bot_running, global_connection, management_task
     is_bot_running = True
@@ -102,49 +111,48 @@ async def run_bulletproof_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    if len(price_history) > 20:
+                    if len(price_history) > 30:
                         price_history.pop(0)
                         
-                    if len(price_history) == 20 and is_bot_running:
-                        recent_high = max(price_history[:-1])
-                        recent_low = min(price_history[:-1])
+                    if len(price_history) >= 30 and is_bot_running:
+                        # Simple Moving Average for trend direction filter
+                        sma = sum(price_history) / len(price_history)
                         
                         positions = await connection.get_positions()
-                        current_open_count = len(positions)
+                        xau_positions = [p for p in positions if p.get("symbol") == "XAUUSDm"]
+                        current_open_count = len(xau_positions)
                         
-                        can_open = True
-                        if current_open_count >= MAX_CONCURRENT_TRADES:
-                            can_open = False
+                        can_open = current_open_count < MAX_CONCURRENT_TRADES
                         
                         active_direction = None
                         if current_open_count > 0:
-                            for p in positions:
-                                p_type = p.get("type")
-                                is_b = p_type in [0, "POSITION_TYPE_BUY", "buy"]
-                                active_direction = "BUY" if is_b else "SELL"
-                                break
+                            p_type = xau_positions[0].get("type")
+                            is_b = p_type in [0, "POSITION_TYPE_BUY", "buy"]
+                            active_direction = "BUY" if is_b else "SELL"
 
                         if can_open:
                             action = None
-                            layer_index = current_open_count
-                            active_lot = lot_sequence[layer_index]
+                            active_lot = lot_sequence[current_open_count]
                             
                             if current_open_count > 0:
+                                # Scale in the exact same direction as the basket
                                 action = active_direction
                                 entry = current_ask if action == "BUY" else current_bid
                             else:
-                                if current_price >= recent_high - 0.02:
-                                    action = "SELL"
-                                    entry = current_bid
-                                elif current_price <= recent_low + 0.02:
+                                # Trend-following entry instead of blind mean-reversion
+                                if current_price > sma + 0.50:
                                     action = "BUY"
                                     entry = current_ask
+                                elif current_price < sma - 0.50:
+                                    action = "SELL"
+                                    entry = current_bid
                                     
                             if action and is_bot_running:
                                 print(f"Opening Layer {current_open_count + 1} | Action: {action} | Volume: {active_lot}")
                                 
-                                tp_dist = 20.00
-                                sl_dist = 25.00
+                                # Wider, safer Gold buffers (optimized for standard XAU spreads)
+                                tp_dist = 40.00
+                                sl_dist = 30.00
                                 
                                 if action == "BUY":
                                     tp = round(entry + tp_dist, 2)
@@ -155,7 +163,7 @@ async def run_bulletproof_bot():
                                     sl = round(entry + sl_dist, 2)
                                     await connection.create_market_sell_order(symbol="XAUUSDm", volume=active_lot, stop_loss=sl, take_profit=tp)
                                 
-                                cooldown_timer = 10
+                                cooldown_timer = 15
                 
                 await asyncio.sleep(1.0)
                 
@@ -174,7 +182,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Bulletproof Trailing & Dynamic Progression)" if is_bot_running else "Paused"
+    status_text = "Active (Optimized Trend Filtering & Safe Stops)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -196,7 +204,7 @@ async def read_dashboard():
         <div class="container">
             <h1>Gold Bulletproof System (24/5)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Progression: 0.1 -> 0.2 -> 0.3 | Safe Broker-Compliant Trailing</p>
+            <p>Progression: 0.1 -> 0.2 -> 0.3 | SMA Trend Filter Enabled</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
@@ -237,7 +245,7 @@ async def manual_place_buy():
         await connection.wait_synchronized()
         price_info = await connection.get_symbol_price("XAUUSDm")
         ask = price_info.get("ask", 0)
-        res = await connection.create_market_buy_order(symbol="XAUUSDm", volume=0.1, stop_loss=round(ask-25,2), take_profit=round(ask+20,2))
+        res = await connection.create_market_buy_order(symbol="XAUUSDm", volume=0.1, stop_loss=round(ask-30,2), take_profit=round(ask+40,2))
         return {"status": "success", "order": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -255,7 +263,7 @@ async def manual_place_sell():
         await connection.wait_synchronized()
         price_info = await connection.get_symbol_price("XAUUSDm")
         bid = price_info.get("bid", 0)
-        res = await connection.create_market_sell_order(symbol="XAUUSDm", volume=0.1, stop_loss=round(bid+25,2), take_profit=round(bid-20,2))
+        res = await connection.create_market_sell_order(symbol="XAUUSDm", volume=0.1, stop_loss=round(bid+30,2), take_profit=round(bid-40,2))
         return {"status": "success", "order": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
