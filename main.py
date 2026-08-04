@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Recovery Grid with Capped Risk Engine")
+app = FastAPI(title="Gold Fast-Scalp Grid (25-50$ Target)")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -35,36 +35,19 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Dynamic profit-locking tiers based on live profit
+                    # Quick profit-locking tiers for fast scalps
                     if is_buy:
-                        if profit >= 4.0:
-                            desired_sl = round(open_py + 0.80, 2)
+                        if profit >= 2.0:
+                            desired_sl = round(open_py + 0.20, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 2.0:
-                            desired_sl = round(open_py + 0.40, 2)
-                            if current_sl < desired_sl:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 0.80:
-                            desired_sl = round(open_py + 0.15, 2)
-                            if current_sl < desired_sl:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                                
                     elif is_sell:
-                        if profit >= 4.0:
-                            desired_sl = round(open_py - 0.80, 2)
-                            if current_sl > desired_sl or current_sl == 0:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 2.0:
-                            desired_sl = round(open_py - 0.40, 2)
-                            if current_sl > desired_sl or current_sl == 0:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 0.80:
-                            desired_sl = round(open_py - 0.15, 2)
+                        if profit >= 2.0:
+                            desired_sl = round(open_py - 0.20, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
-        except Exception as e:
+        except Exception:
             pass
             
         await asyncio.sleep(1)
@@ -77,9 +60,9 @@ async def run_scalping_bot():
     lot_sequence = [0.1, 0.2, 0.5]
     MAX_CONCURRENT_TRADES = 10
     
-    # Momentum Engine Parameters
-    TREND_WINDOW = 30          
-    MIN_POINT_TRIGGER = 1.0    
+    # Fast-Scalp Parameters: Responsive short window, lower trigger for quick $25-$50 hits
+    FAST_WINDOW = 8            # Short lookback for rapid reaction
+    MIN_POINT_TRIGGER = 0.35   # Triggers on a fast 0.35+ point push (clears spread quickly)
     
     while is_bot_running:
         connection = None
@@ -99,7 +82,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Recovery Grid Scalper with Capped Risk Engine active (Max Cap: 10 Trades)...")
+            print("Fast-Scalp Grid Active (Targeting Quick $25-$50 Moves)...")
 
             price_history = []
 
@@ -112,40 +95,39 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    if len(price_history) > TREND_WINDOW:
+                    if len(price_history) > FAST_WINDOW:
                         price_history.pop(0)
                         
-                    if len(price_history) == TREND_WINDOW and is_bot_running:
-                        sma_trend = sum(price_history) / len(price_history)
-                        short_term_baseline = price_history[-6]
-                        point_movement = current_price - short_term_baseline
+                    if len(price_history) == FAST_WINDOW and is_bot_running:
+                        # Compare current price to 5 ticks ago for fast momentum
+                        baseline_price = price_history[0]
+                        point_movement = current_price - baseline_price
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
                         
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             action = None
-                            
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            if point_movement >= MIN_POINT_TRIGGER and current_price > sma_trend:
+                            if point_movement >= MIN_POINT_TRIGGER:
                                 action = "BUY"
                                 entry = current_ask
-                            elif point_movement <= -MIN_POINT_TRIGGER and current_price < sma_trend:
+                            elif point_movement <= -MIN_POINT_TRIGGER:
                                 action = "SELL"
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"Capped Risk Signal | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size}")
+                                print(f"Fast Scalp Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | Move: {point_movement:.2f}pts")
                                 
                                 spread_offset = 0.27
-                                net_dollar_target = 10.0  
+                                # Target optimized for quick $25-$50 payout depending on lot size
+                                net_dollar_target = 35.0  
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
-                                # STRICT LOSS CAP: Hard stop loss set safely so max drawdown per lot stays strictly controlled
-                                # For 0.5 lots, a 4.0 point SL restricts maximum risk exposure per trade.
+                                # Capped risk safety stop at 4.0 points max
                                 max_sl_distance = 4.0 
                                 
                                 if action == "BUY":
@@ -161,7 +143,7 @@ async def run_scalping_bot():
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                 
-                await asyncio.sleep(2)  
+                await asyncio.sleep(1.0)  # Fast polling for rapid execution
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -178,12 +160,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Capped Risk Grid + Dynamic Profit-Lock | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (Fast-Scalp Grid ($25-$50 Target) | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Capped Risk Scalper</title>
+        <title>Gold Fast-Scalp Bot</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -197,9 +179,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Capped Risk Scalper (10 Cap)</h1>
+            <h1>Gold Fast-Scalp Bot (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Strict Hard Stop-Loss Risk Cap</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Fast 0.35pt Trigger for Quick $25-$50 Payouts</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
