@@ -36,17 +36,16 @@ async def position_management_loop():
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
                     if is_buy:
-                        # Aggressive early locking to prevent price from jumping over the SL
                         if profit >= 4.0:
-                            desired_sl = round(open_py + 0.80, 2) # Lock profit early at $4 move
+                            desired_sl = round(open_py + 0.80, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                         elif profit >= 2.0:
-                            desired_sl = round(open_py + 0.40, 2) # Lock profit early at $2 move
+                            desired_sl = round(open_py + 0.40, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                         elif profit >= 0.80:
-                            desired_sl = round(open_py + 0.15, 2) # Immediate breakeven + spread buffer
+                            desired_sl = round(open_py + 0.15, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -123,9 +122,9 @@ async def run_scalping_bot():
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             lot_size = 0.03
                             spread_offset = 0.27
-                            net_dollar_target = 3.0O if '3.0O' else 3.0  # Tight target for quick exits
+                            net_dollar_target = 3.0  # Fixed typo here
                             
-                            price_move_target = 3.0 / (lot_size * 100)
+                            price_move_target = net_dollar_target / (lot_size * 100)
                             total_tp_distance = round(spread_offset + price_move_target, 2)
                             
                             action = None
