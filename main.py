@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Instant-Lock Scalper")
+app = FastAPI(title="Gold Balanced Momentum Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -16,9 +16,9 @@ is_bot_running = False
 global_connection = None
 
 async def position_management_loop():
-    """Ultra-fast background worker running every 1 second with aggressive early profit locking."""
+    """1-second trailing stop engine with aggressive profit locking."""
     global is_bot_running, global_connection
-    print("Instant-Lock 1-Second Trailing SL Engine online...")
+    print("1-Second Trailing SL Engine online...")
     
     while is_bot_running:
         try:
@@ -91,7 +91,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Instant-Lock Scalper active. Max Cap: 150...")
+            print("Balanced Momentum Scalper active. Max Cap: 150...")
 
             price_history = []
             MAX_CONCURRENT_TRADES = 150
@@ -105,16 +105,15 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    if len(price_history) > 6:
+                    # Maintain an 8-tick window for balanced trend assessment
+                    if len(price_history) > 8:
                         price_history.pop(0)
                         
-                    if len(price_history) == 6:
-                        micro_ema = sum(price_history[-3:]) / 3.0
-                        price_deviation = current_price - micro_ema
-                        instant_velocity = current_price - price_history[0]
-                        
-                        is_fast_spike_up = instant_velocity >= 0.15
-                        is_fast_spike_down = instant_velocity <= -0.15
+                    if len(price_history) == 8:
+                        # Balanced EMA calculation across the window
+                        short_ema = sum(price_history[-4:]) / 4.0
+                        long_ema = sum(price_history[:4]) / 4.0
+                        trend_slope = short_ema - long_ema
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
@@ -122,40 +121,31 @@ async def run_scalping_bot():
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             lot_size = 0.03
                             spread_offset = 0.27
-                            net_dollar_target = 3.0  # Fixed typo here
+                            net_dollar_target = 3.0  
                             
                             price_move_target = net_dollar_target / (lot_size * 100)
                             total_tp_distance = round(spread_offset + price_move_target, 2)
                             
                             action = None
                             
-                            if is_fast_spike_up:
-                                action = "SELL"
-                                entry = current_bid
-                                stop_loss = round(entry + 10.00, 2)
-                                take_profit = round(entry - total_tp_distance, 2)
-                            elif is_fast_spike_down:
+                            # Balanced entry rules: requires a clean trend slope rather than a random micro-tick wiggle
+                            if trend_slope >= 0.08:  # Clear intermediate upward momentum
                                 action = "BUY"
                                 entry = current_ask
-                                stop_loss = round(entry - 10.00, 2)
+                                stop_loss = round(entry - 12.00, 2)
                                 take_profit = round(entry + total_tp_distance, 2)
-                            else:
-                                if price_deviation >= 0.05:
-                                    action = "SELL"
-                                    entry = current_bid
-                                    stop_loss = round(entry + 10.00, 2)
-                                    take_profit = round(entry - total_tp_distance, 2)
-                                elif price_deviation <= -0.05:
-                                    action = "BUY"
-                                    entry = current_ask
-                                    stop_loss = round(entry - 10.00, 2)
-                                    take_profit = round(entry + total_tp_distance, 2)
+                            elif trend_slope <= -0.08:  # Clear intermediate downward momentum
+                                action = "SELL"
+                                entry = current_bid
+                                stop_loss = round(entry + 12.00, 2)
+                                take_profit = round(entry - total_tp_distance, 2)
                                     
                             if action:
                                 slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                                burst_count = min(slots_available, 4)
+                                # Reduced burst count to 2 to protect against false breakouts while keeping good frequency
+                                burst_count = min(slots_available, 2)
                                 
-                                print(f"Executing {burst_count} {action} orders.")
+                                print(f"Balanced Entry: Opening {burst_count} {action} orders.")
                                 
                                 if action == "BUY":
                                     tasks = [
@@ -172,7 +162,8 @@ async def run_scalping_bot():
                                     
                                 await asyncio.gather(*tasks)
                 
-                await asyncio.sleep(1.5)
+                # Balanced scanning interval
+                await asyncio.sleep(2)
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -189,12 +180,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Instant-Lock SL Engine | Max 150 Cap)" if is_bot_running else "Paused"
+    status_text = "Active (Balanced Momentum Engine | Max 150 Cap)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Instant-Lock Scalper</title>
+        <title>Gold Balanced Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -205,9 +196,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Instant-Lock Scalping System</h1>
+            <h1>Gold Balanced Momentum Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: 1s Early Profit-Lock Worker | 0.03 Lots | Max Cap: 150 Orders</p>
+            <p>Execution: 2s Momentum Scan | 1s Trailing SL | 0.03 Lots | Max Cap: 150 Orders</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -233,12 +224,12 @@ async def test_order():
         ask = price_info.get("ask", 0)
 
         test_tp = round(ask + 2.00, 2)
-        test_sl = round(ask - 10.00, 2)
+        test_sl = round(ask - 12.00, 2)
 
         tasks = [
             connection.create_market_buy_order(
                 symbol="XAUUSDm", volume=0.03, stop_loss=test_sl, take_profit=test_tp
-            ) for _ in range(4)
+            ) for _ in range(2)
         ]
         results = await asyncio.gather(*tasks)
         return {"status": "success", "batch_count": len(results), "orders": results}
