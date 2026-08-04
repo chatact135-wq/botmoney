@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Dynamic Progression System")
+app = FastAPI(title="Gold Bulletproof Dynamic System")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -17,11 +17,11 @@ global_connection = None
 
 async def position_management_loop():
     """
-    High-Speed Trailing Engine (Checked every 0.3 seconds):
-    - Instantly shifts Stop Loss to lock in profit the moment any trade moves into green.
+    High-Speed Trailing Engine:
+    - Automatically updates stop losses using broker-compliant distances the moment trades hit profit.
     """
     global is_bot_running, global_connection
-    print("High-Speed Trailing Engine online (0.3s interval)...")
+    print("Bulletproof Trailing Engine online...")
     
     while is_bot_running:
         try:
@@ -38,26 +38,26 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # High-speed lock as soon as profit is reached
-                    if is_buy and profit >= 0.80:
-                        desired_sl = round(open_price + 0.10, 2)
+                    # Safe broker-compliant trailing steps to prevent rejection errors
+                    if is_buy and profit >= 1.50:
+                        desired_sl = round(open_price + 0.50, 2)
                         if current_sl < desired_sl:
                             await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                    elif is_sell and profit >= 0.80:
-                        desired_sl = round(open_price - 0.10, 2)
+                    elif is_sell and profit >= 1.50:
+                        desired_sl = round(open_price - 0.50, 2)
                         if current_sl > desired_sl or current_sl == 0:
                             await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
         except Exception:
             pass
             
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.4)
 
 
-async def run_dynamic_bot():
+async def run_bulletproof_bot():
     """
     Execution Engine:
     - Sequence: 0.1 -> 0.2 -> 0.3 max.
-    - Opens layers based on market signals without waiting for prior trades to hit profit first.
+    - Dynamic scaling without strict blocking.
     """
     global is_bot_running, global_connection, management_task
     is_bot_running = True
@@ -84,7 +84,7 @@ async def run_dynamic_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Dynamic Progression Engine active...")
+            print("Bulletproof Engine active...")
 
             price_history = []
 
@@ -130,11 +130,9 @@ async def run_dynamic_bot():
                             active_lot = lot_sequence[layer_index]
                             
                             if current_open_count > 0:
-                                # Match existing direction for the basket layers
                                 action = active_direction
                                 entry = current_ask if action == "BUY" else current_bid
                             else:
-                                # New base signal from reversion extremes
                                 if current_price >= recent_high - 0.02:
                                     action = "SELL"
                                     entry = current_bid
@@ -171,17 +169,17 @@ async def startup_event():
     global bot_task
     init_db()
     if not bot_task or bot_task.done():
-        bot_task = asyncio.create_task(run_dynamic_bot())
+        bot_task = asyncio.create_task(run_bulletproof_bot())
 
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Dynamic Progression + 0.3s Trailing)" if is_bot_running else "Paused"
+    status_text = "Active (Bulletproof Trailing & Dynamic Progression)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Dynamic Progression System</title>
+        <title>Gold Bulletproof System</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 40px; }}
@@ -196,9 +194,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Dynamic Progression System (24/5)</h1>
+            <h1>Gold Bulletproof System (24/5)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Progression: 0.1 -> 0.2 -> 0.3 | 0.3s High-Speed Trailing</p>
+            <p>Progression: 0.1 -> 0.2 -> 0.3 | Safe Broker-Compliant Trailing</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
@@ -223,7 +221,7 @@ async def resume_bot():
     global bot_task, is_bot_running
     is_bot_running = True
     if not bot_task or bot_task.done():
-        bot_task = asyncio.create_task(run_dynamic_bot())
+        bot_task = asyncio.create_task(run_bulletproof_bot())
     return {"status": "success", "message": "Resumed."}
 
 
