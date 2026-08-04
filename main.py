@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Recovery Grid with Dynamic Profit-Lock")
+app = FastAPI(title="Gold High-Momentum Recovery Grid Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -95,7 +95,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Recovery Grid Scalper with Dynamic Stop-Loss active (Max Cap: 10 Trades)...")
+            print("High-Momentum Recovery Grid Scalper active (Max Cap: 10 Trades)...")
 
             price_history = []
 
@@ -108,11 +108,15 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    if len(price_history) > 4:
+                    # Expanded window to filter out micro-choppiness and detect true momentum pushes
+                    if len(price_history) > 10:
                         price_history.pop(0)
                         
-                    if len(price_history) == 4 and is_bot_running:
-                        tick_move = current_price - price_history[0]
+                    if len(price_history) == 10 and is_bot_running:
+                        # Dual-EMA / Slope check over a broader window to require real directional intent
+                        short_ema = sum(price_history[-4:]) / 4.0
+                        long_ema = sum(price_history[:6]) / 6.0
+                        trend_slope = short_ema - long_ema
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
@@ -124,18 +128,19 @@ async def run_scalping_bot():
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            if tick_move >= 0.04:
+                            # Stricter momentum threshold to avoid micro-fluctuations
+                            if trend_slope >= 0.15:
                                 action = "BUY"
                                 entry = current_ask
-                            elif tick_move <= -0.04:
+                            elif trend_slope <= -0.15:
                                 action = "SELL"
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"Opening Recovery Step {current_open_count + 1} | Action: {action} | Volume: {active_lot_size} lots")
+                                print(f"High-Momentum Triggered! Step {current_open_count + 1} | Action: {action} | Volume: {active_lot_size} lots")
                                 
                                 spread_offset = 0.27
-                                net_dollar_target = 5.0
+                                net_dollar_target = 6.0
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
@@ -152,7 +157,7 @@ async def run_scalping_bot():
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(2.0)
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -169,12 +174,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Recovery Grid + Dynamic Profit-Lock | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (High-Momentum Recovery Grid + Dynamic SL | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Recovery & Dynamic SL Scalper</title>
+        <title>Gold High-Momentum Recovery Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -188,9 +193,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Recovery & Dynamic SL Scalper (10 Cap)</h1>
+            <h1>Gold High-Momentum Recovery Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | 1s Dynamic Profit-Lock SL</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Filtered Momentum Slope | Dynamic Profit-Lock SL</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
