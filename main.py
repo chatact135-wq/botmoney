@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold EMA Pullback & Capital-Protected Scalper")
+app = FastAPI(title="Gold EMA Pullback & Trailing SL Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -16,9 +16,9 @@ is_bot_running = False
 global_connection = None
 
 async def position_management_loop():
-    """Institutional 1-second capital protection & dynamic profit-locking engine."""
+    """High-frequency 0.5-second trailing stop-loss engine: Keeps TP fixed, aggressively trails SL upward as profit grows."""
     global is_bot_running, global_connection
-    print("Capital Protection Trailing Engine online...")
+    print("High-Frequency Trailing Stop-Loss Engine online (0.5s)...")
     
     while is_bot_running:
         try:
@@ -35,39 +35,39 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Instant capital protection: Drag stop-loss to break-even + buffer at the very first dollar of profit
+                    # Keep Take Profit completely untouched; only trail Stop Loss upward to lock in profits
                     if is_buy:
-                        if profit >= 15.0:
-                            desired_sl = round(open_py + 0.80, 2)
+                        if profit >= 25.0:
+                            desired_sl = round(open_py + 1.20, 2)  # Lock in a big portion if it runs up high
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 7.0:
-                            desired_sl = round(open_py + 0.40, 2)
+                        elif profit >= 12.0:
+                            desired_sl = round(open_py + 0.50, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                         elif profit >= 1.0:
-                            desired_sl = round(open_py + 0.05, 2)  # Secure break-even immediately
+                            desired_sl = round(open_py + 0.05, 2)  # Secure break-even instantly at the first dollar
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
                     elif is_sell:
-                        if profit >= 15.0:
-                            desired_sl = round(open_py - 0.80, 2)
+                        if profit >= 25.0:
+                            desired_sl = round(open_py - 1.20, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 7.0:
-                            desired_sl = round(open_py - 0.40, 2)
+                        elif profit >= 12.0:
+                            desired_sl = round(open_py - 0.50, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                         elif profit >= 1.0:
-                            desired_sl = round(open_py - 0.05, 2)  # Secure break-even immediately
+                            desired_sl = round(open_py - 0.05, 2)  # Secure break-even instantly at the first dollar
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
         except Exception:
             pass
             
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)  # Checked twice every second for real-time protection
 
 
 async def run_scalping_bot():
@@ -77,9 +77,8 @@ async def run_scalping_bot():
     lot_sequence = [0.1, 0.2, 0.5]
     MAX_CONCURRENT_TRADES = 10
     
-    # EMA Pullback Strategy Parameters
-    EMA_PERIOD = 14            # Lookback period for the Exponential Moving Average
-    PULLBACK_THRESHOLD = 0.15  # Maximum distance from EMA to qualify as a valid pullback dip/bounce
+    EMA_PERIOD = 14            
+    PULLBACK_THRESHOLD = 0.15  
     
     while is_bot_running:
         connection = None
@@ -99,7 +98,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("EMA Pullback Scalper Active ($400 Max Risk Cap & Instant Capital Protection)...")
+            print("EMA Pullback Scalper Active (0.5s Trailing SL & Fixed Target TP)...")
 
             price_history = []
             current_ema = None
@@ -113,24 +112,20 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    # Maintain rolling window for EMA calculation
                     if len(price_history) > EMA_PERIOD * 2:
                         price_history.pop(0)
                         
                     if len(price_history) >= EMA_PERIOD and is_bot_running:
-                        # Calculate Exponential Moving Average (EMA) dynamically
                         multiplier = 2 / (EMA_PERIOD + 1)
                         if current_ema is None:
                             current_ema = sum(price_history[-EMA_PERIOD:]) / EMA_PERIOD
                         else:
                             current_ema = (current_price * multiplier) + (current_ema * (1 - multiplier))
                             
-                        # Trend Determination: Check macro slope using older price history benchmark
                         macro_baseline = price_history[-min(len(price_history), 10)]
                         is_uptrend = current_price > macro_baseline
                         is_downtrend = current_price < macro_baseline
                         
-                        # Pullback Check: Is price sitting close to or bouncing off the EMA line?
                         distance_from_ema = current_price - current_ema
                         
                         positions = await connection.get_positions()
@@ -141,26 +136,22 @@ async def run_scalping_bot():
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            # BUY Pullback: Uptrend active, price dipped close to EMA and is pushing upward
                             if is_uptrend and -0.05 <= distance_from_ema <= PULLBACK_THRESHOLD:
                                 action = "BUY"
                                 entry = current_ask
-                            # SELL Pullback: Downtrend active, price bounced close to EMA and is pushing downward
                             elif is_downtrend and -PULLBACK_THRESHOLD <= distance_from_ema <= 0.05:
                                 action = "SELL"
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"EMA Pullback Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | EMA: {current_ema:.2f}")
+                                print(f"EMA Pullback Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size}")
                                 
                                 spread_offset = 0.27
                                 net_dollar_target = 35.0  
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
-                                # STRICT $400 RISK CAP PER LEG: 
-                                # For a 0.5 lot, $50/pt * 8.0 points = $400 max hard risk cap.
-                                max_sl_distance = 8.0 
+                                max_sl_distance = 8.0  # $400 risk cap per leg
                                 
                                 if action == "BUY":
                                     take_profit = round(entry + total_tp_distance, 2)
@@ -192,12 +183,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (EMA Pullback + Capital Protection | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (0.5s Trailing SL Engine + Capital Protection | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold EMA Pullback Bot</title>
+        <title>Gold Trailing SL Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -211,9 +202,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold EMA Pullback Bot (10 Cap)</h1>
+            <h1>Gold Trailing SL Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | EMA Pullback Entry & Instant Break-Even Lock</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | 0.5s Real-Time Trailing Stop-Loss</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
