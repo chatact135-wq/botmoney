@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold EMA Pullback & Safe Trailing Scalper")
+app = FastAPI(title="Gold Inverse EMA Pullback Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -25,7 +25,6 @@ async def position_management_loop():
             if global_connection and is_bot_running:
                 positions = await global_connection.get_positions()
                 
-                # Fetch current market prices to validate stop-loss placement safety distances
                 symbol_price = await global_connection.get_symbol_price("XAUUSDm")
                 current_bid = symbol_price.get("bid")
                 current_ask = symbol_price.get("ask")
@@ -41,7 +40,6 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Safe trailing logic with broker distance validation
                     if is_buy and current_bid:
                         desired_sl = None
                         if profit >= 25.0:
@@ -49,10 +47,9 @@ async def position_management_loop():
                         elif profit >= 12.0:
                             desired_sl = round(open_py + 0.50, 2)
                         elif profit >= 1.0:
-                            desired_sl = round(open_py + 0.05, 2)  # Break-even + buffer
+                            desired_sl = round(open_py + 0.05, 2)
                             
                         if desired_sl and current_sl < desired_sl:
-                            # Ensure stop loss is safely below current bid price to prevent broker rejection
                             if desired_sl < current_bid - 0.20:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -63,10 +60,9 @@ async def position_management_loop():
                         elif profit >= 12.0:
                             desired_sl = round(open_py - 0.50, 2)
                         elif profit >= 1.0:
-                            desired_sl = round(open_py - 0.05, 2)  # Break-even + buffer
+                            desired_sl = round(open_py - 0.05, 2)
                             
                         if desired_sl and (current_sl > desired_sl or current_sl == 0):
-                            # Ensure stop loss is safely above current ask price to prevent broker rejection
                             if desired_sl > current_ask + 0.20:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -104,7 +100,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("EMA Pullback Scalper Active (Safe 0.5s Trailing SL & Fixed Target TP)...")
+            print("Inverse EMA Pullback Scalper Active (Safe 0.5s Trailing SL)...")
 
             price_history = []
             current_ema = None
@@ -142,22 +138,23 @@ async def run_scalping_bot():
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
+                            # INVERTED LOGIC: Original BUY condition now triggers SELL, and vice versa
                             if is_uptrend and -0.05 <= distance_from_ema <= PULLBACK_THRESHOLD:
-                                action = "BUY"
-                                entry = current_ask
-                            elif is_downtrend and -PULLBACK_THRESHOLD <= distance_from_ema <= 0.05:
                                 action = "SELL"
                                 entry = current_bid
+                            elif is_downtrend and -PULLBACK_THRESHOLD <= distance_from_ema <= 0.05:
+                                action = "BUY"
+                                entry = current_ask
                                 
                             if action and is_bot_running:
-                                print(f"EMA Pullback Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size}")
+                                print(f"Inverse EMA Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size}")
                                 
                                 spread_offset = 0.27
                                 net_dollar_target = 35.0  
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
-                                max_sl_distance = 8.0  # $400 risk cap per leg
+                                max_sl_distance = 8.0  
                                 
                                 if action == "BUY":
                                     take_profit = round(entry + total_tp_distance, 2)
@@ -189,12 +186,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Safe 0.5s Trailing SL Engine + Capital Protection | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (Inverse Strategy + Safe Trailing SL | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Safe Trailing Scalper</title>
+        <title>Gold Inverse Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -208,9 +205,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Safe Trailing Scalper (10 Cap)</h1>
+            <h1>Gold Inverse Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Safe 0.5s Real-Time Trailing Stop-Loss</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Inverted Signals (Buy $\leftrightarrow$ Sell)</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
