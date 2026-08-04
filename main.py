@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Smart Momentum Reversion System")
+app = FastAPI(title="Gold Real-Time Dynamic Reversion System")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -17,12 +17,12 @@ global_connection = None
 
 async def position_management_loop():
     """
-    24/5 Background Management Loop:
-    - Implements strict dynamic trailing for stop losses once trades move into profit.
-    - Guarantees profit floor protection and pushes TP/SL dynamically as price moves further.
+    Real-time 1-second management loop:
+    - Actively shifts Stop Loss and Take Profit upward/downward the moment profit starts building.
+    - Locks in a profit floor instantly once a trade clears $0.80+ floating profit.
     """
     global is_bot_running, global_connection
-    print("Smart Reversion Dynamic Protection & Trailing Engine online...")
+    print("Real-Time Dynamic Trailing & TP/SL Engine online...")
     
     while is_bot_running:
         try:
@@ -39,52 +39,50 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Trailing management to secure profit floor and stretch TP/SL dynamically
+                    # Responsive dynamic trailing as soon as profit is registered
                     if is_buy:
-                        if profit >= 20.0:
-                            desired_sl = round(open_price + 5.0, 2)
-                            desired_tp = round(current_tp + 10.0, 2)
-                            if current_sl < desired_sl:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
-                        elif profit >= 10.0:
-                            desired_sl = round(open_price + 2.0, 2)
-                            desired_tp = round(current_tp + 5.0, 2)
+                        if profit >= 10.0:
+                            desired_sl = round(open_price + (profit * 0.15), 2)
+                            desired_tp = round(current_tp + 2.0, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
                         elif profit >= 3.0:
-                            desired_sl = round(open_price + 1.0, 2)  # Secure $1+ profit floor
+                            desired_sl = round(open_price + 0.50, 2)
+                            desired_tp = round(current_tp + 1.0, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
+                        elif profit >= 0.80:
+                            desired_sl = round(open_price + 0.10, 2) # Secure instant break-even + profit floor
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
                     elif is_sell:
-                        if profit >= 20.0:
-                            desired_sl = round(open_price - 5.0, 2)
-                            desired_tp = round(current_tp - 10.0, 2)
-                            if current_sl > desired_sl or current_sl == 0:
-                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
-                        elif profit >= 10.0:
-                            desired_sl = round(open_price - 2.0, 2)
-                            desired_tp = round(current_tp - 5.0, 2)
+                        if profit >= 10.0:
+                            desired_sl = round(open_price - (profit * 0.15), 2)
+                            desired_tp = round(current_tp - 2.0, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
                         elif profit >= 3.0:
-                            desired_sl = round(open_price - 1.0, 2)  # Secure $1+ profit floor
+                            desired_sl = round(open_price - 0.50, 2)
+                            desired_tp = round(current_tp - 1.0, 2)
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
+                        elif profit >= 0.80:
+                            desired_sl = round(open_price - 0.10, 2) # Secure instant break-even + profit floor
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=desired_tp)
                                 
         except Exception:
             pass
             
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 
 async def run_smart_reversion_bot():
     """
-    Main 24/5 Execution Engine with Momentum Filtering:
-    - Measures momentum velocity. If momentum is strong/trending, it stands aside.
-    - If momentum is weak/flat, it executes mean reversion (selling peaks, buying dips).
-    - Strict Layer Progression: 0.1 -> 0.2 -> 0.3 max.
-    - Layer 2 (0.2) and Layer 3 (0.3) open ONLY if previous layers are confirmed in profit (SL trailed past entry).
+    Main 24/5 Execution Engine with Momentum Filtering & Strict Layer Progression:
+    - Layer sequence: 0.1 -> 0.2 -> 0.3 max.
+    - Only opens next layer if previous layer's stop loss is verified past entry in profit.
     """
     global is_bot_running, global_connection, management_task
     is_bot_running = True
@@ -110,7 +108,7 @@ async def run_smart_reversion_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("24/5 Smart Momentum-Filtered Reversion Engine active...")
+            print("24/5 Real-Time Dynamic Reversion Engine active...")
 
             price_history = []
 
@@ -130,13 +128,10 @@ async def run_smart_reversion_bot():
                         recent_high = max(price_history[:-1])
                         recent_low = min(price_history[:-1])
                         
-                        # Momentum Filter: Measure short-term velocity vs longer baseline
                         fast_velocity = sum(price_history[-4:]) / 4.0
                         slow_velocity = sum(price_history[:10]) / 10.0
                         momentum_strength = abs(fast_velocity - slow_velocity)
                         
-                        # Only allow fading/reversion if momentum is WEAK/FLAT (< 0.15)
-                        # If momentum is strong, we avoid trading to prevent getting run over by a trend
                         if momentum_strength < 0.15:
                             positions = await connection.get_positions()
                             current_open_count = len(positions)
@@ -160,7 +155,6 @@ async def run_smart_reversion_bot():
                                 layer_index = current_open_count
                                 active_lot = lot_sequence[layer_index]
                                 
-                                # Sell at peaks, Buy at bottoms under weak momentum conditions
                                 if current_price >= recent_high - 0.05:
                                     action = "SELL"
                                     entry = current_bid
@@ -169,7 +163,7 @@ async def run_smart_reversion_bot():
                                     entry = current_ask
                                     
                                 if action and is_bot_running:
-                                    print(f"Weak-Momentum Reversion Signal! Opening Layer {current_open_count + 1} | Action: {action} | Volume: {active_lot} lots")
+                                    print(f"Reversion Signal! Opening Layer {current_open_count + 1} | Action: {action} | Volume: {active_lot} lots")
                                     
                                     initial_tp_distance = 15.00
                                     initial_sl_distance = 12.00
@@ -187,7 +181,7 @@ async def run_smart_reversion_bot():
                                             symbol="XAUUSDm", volume=active_lot, stop_loss=stop_loss, take_profit=take_profit
                                         )
                 
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(2.0)
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -204,12 +198,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (24/5 Smart Reversion with Momentum Filter + Progression)" if is_bot_running else "Paused"
+    status_text = "Active (Real-Time Dynamic Trailing & Reversion System)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Smart Reversion System</title>
+        <title>Gold Real-Time Dynamic System</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 40px; }}
@@ -224,10 +218,10 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Smart Reversion System (24/5)</h1>
+            <h1>Gold Real-Time Dynamic System (24/5)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Strategy: Fade Peaks/Dips ONLY on Weak Momentum | Progression: 0.1 -> 0.2 -> 0.3</p>
-            <p>Features: Dynamic Stop-Loss & Take-Profit Trailing | Direct Manual Test Buttons</p>
+            <p>Strategy: Instant Profit Trailing ($0.80+) | Progression: 0.1 -> 0.2 -> 0.3</p>
+            <p>Features: 1s Real-Time TP/SL Shifting | Direct Manual Test Buttons</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
