@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold High-Momentum Recovery Grid Scalper")
+app = FastAPI(title="Gold Recovery Grid with Momentum Filter")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -64,7 +64,7 @@ async def position_management_loop():
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
-        except Exception:
+        except Exception as e:
             pass
             
         await asyncio.sleep(1)
@@ -76,6 +76,10 @@ async def run_scalping_bot():
     
     lot_sequence = [0.1, 0.2, 0.5]
     MAX_CONCURRENT_TRADES = 10
+    
+    # Momentum Engine Parameters
+    TREND_WINDOW = 30          # Historical buffer for trend calculation
+    MIN_POINT_TRIGGER = 1.0    # Requires at least a 1.0 full point directional push on Gold to trigger
     
     while is_bot_running:
         connection = None
@@ -95,7 +99,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("High-Momentum Recovery Grid Scalper active (Max Cap: 10 Trades)...")
+            print("Recovery Grid Scalper with Momentum Filter active (Max Cap: 10 Trades)...")
 
             price_history = []
 
@@ -108,15 +112,17 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    # Expanded window to filter out micro-choppiness and detect true momentum pushes
-                    if len(price_history) > 10:
+                    if len(price_history) > TREND_WINDOW:
                         price_history.pop(0)
                         
-                    if len(price_history) == 10 and is_bot_running:
-                        # Dual-EMA / Slope check over a broader window to require real directional intent
-                        short_ema = sum(price_history[-4:]) / 4.0
-                        long_ema = sum(price_history[:6]) / 6.0
-                        trend_slope = short_ema - long_ema
+                    # Evaluate only when we have filled our trend window history
+                    if len(price_history) == TREND_WINDOW and is_bot_running:
+                        # 1. Baseline moving average trend filter
+                        sma_trend = sum(price_history) / len(price_history)
+                        
+                        # 2. Check short-term momentum (comparing current price against 6 ticks ago)
+                        short_term_baseline = price_history[-6]
+                        point_movement = current_price - short_term_baseline
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
@@ -124,40 +130,39 @@ async def run_scalping_bot():
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             action = None
                             
-                            # Determine lot size scaling: 0.1 -> 0.2 -> 0.5 max
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            # Stricter momentum threshold to avoid micro-fluctuations
-                            if trend_slope >= 0.15:
+                            # Filter triggers: Needs real point distance AND alignment with market trend baseline
+                            if point_movement >= MIN_POINT_TRIGGER and current_price > sma_trend:
                                 action = "BUY"
                                 entry = current_ask
-                            elif trend_slope <= -0.15:
+                            elif point_movement <= -MIN_POINT_TRIGGER and current_price < sma_trend:
                                 action = "SELL"
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"High-Momentum Triggered! Step {current_open_count + 1} | Action: {action} | Volume: {active_lot_size} lots")
+                                print(f"Momentum Signal Triggered! Step {current_open_count + 1} | Action: {action} | Move: {point_movement:.2f} pts | Vol: {active_lot_size}")
                                 
                                 spread_offset = 0.27
-                                net_dollar_target = 6.0
+                                net_dollar_target = 10.0  # Increased target payout per leg to match larger point sweeps
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
                                 if action == "BUY":
                                     take_profit = round(entry + total_tp_distance, 2)
-                                    stop_loss = round(entry - 25.00, 2)
+                                    stop_loss = round(entry - 4.00, 2)  # Tighter protective SL since entries require genuine momentum
                                     await connection.create_market_buy_order(
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                                 else:
                                     take_profit = round(entry - total_tp_distance, 2)
-                                    stop_loss = round(entry + 25.00, 2)
+                                    stop_loss = round(entry + 4.00, 2)
                                     await connection.create_market_sell_order(
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                 
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(2)  # Slower poll rate to monitor genuine trend development
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -174,12 +179,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (High-Momentum Recovery Grid + Dynamic SL | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (Momentum Grid + Dynamic Profit-Lock | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold High-Momentum Recovery Scalper</title>
+        <title>Gold Momentum & Dynamic SL Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -193,9 +198,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold High-Momentum Recovery Scalper (10 Cap)</h1>
+            <h1>Gold Momentum & Dynamic SL Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Filtered Momentum Slope | Dynamic Profit-Lock SL</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | 1.0+ Point Momentum Filter</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
