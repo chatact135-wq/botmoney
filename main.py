@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Fast-Scalp Grid (25-50$ Target)")
+app = FastAPI(title="Gold Fast-Scalp Grid (400$ Risk Cap & Aggressive Profit Lock)")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -16,9 +16,9 @@ is_bot_running = False
 global_connection = None
 
 async def position_management_loop():
-    """1-second dynamic profit-locking engine: Trails stop losses upward when trades go green."""
+    """Aggressive 1-second profit-locking engine: Trails stop losses upward instantly as soon as trades go green."""
     global is_bot_running, global_connection
-    print("Dynamic Profit-Lock Trailing Engine online...")
+    print("Aggressive Profit-Lock Trailing Engine online...")
     
     while is_bot_running:
         try:
@@ -35,15 +35,32 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Quick profit-locking tiers for fast scalps
+                    # Aggressive trailing as soon as profit hits even $1+ to protect capital
                     if is_buy:
-                        if profit >= 2.0:
-                            desired_sl = round(open_py + 0.20, 2)
+                        if profit >= 15.0:
+                            desired_sl = round(open_py + 0.80, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                        elif profit >= 7.0:
+                            desired_sl = round(open_py + 0.40, 2)
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                        elif profit >= 1.0:  # Triggers immediately at the first dollar of profit
+                            desired_sl = round(open_py + 0.05, 2)  # Secure break-even + tiny buffer
+                            if current_sl < desired_sl:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                                
                     elif is_sell:
-                        if profit >= 2.0:
-                            desired_sl = round(open_py - 0.20, 2)
+                        if profit >= 15.0:
+                            desired_sl = round(open_py - 0.80, 2)
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                        elif profit >= 7.0:
+                            desired_sl = round(open_py - 0.40, 2)
+                            if current_sl > desired_sl or current_sl == 0:
+                                await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
+                        elif profit >= 1.0:  # Triggers immediately at the first dollar of profit
+                            desired_sl = round(open_py - 0.05, 2)  # Secure break-even + tiny buffer
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -60,9 +77,8 @@ async def run_scalping_bot():
     lot_sequence = [0.1, 0.2, 0.5]
     MAX_CONCURRENT_TRADES = 10
     
-    # Fast-Scalp Parameters: Responsive short window, lower trigger for quick $25-$50 hits
-    FAST_WINDOW = 8            # Short lookback for rapid reaction
-    MIN_POINT_TRIGGER = 0.35   # Triggers on a fast 0.35+ point push (clears spread quickly)
+    FAST_WINDOW = 8            
+    MIN_POINT_TRIGGER = 0.35   
     
     while is_bot_running:
         connection = None
@@ -82,7 +98,7 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Fast-Scalp Grid Active (Targeting Quick $25-$50 Moves)...")
+            print("Fast-Scalp Grid Active ($400 Max Risk Cap per Leg & Instant Capital Protection)...")
 
             price_history = []
 
@@ -99,7 +115,6 @@ async def run_scalping_bot():
                         price_history.pop(0)
                         
                     if len(price_history) == FAST_WINDOW and is_bot_running:
-                        # Compare current price to 5 ticks ago for fast momentum
                         baseline_price = price_history[0]
                         point_movement = current_price - baseline_price
                         
@@ -119,16 +134,16 @@ async def run_scalping_bot():
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"Fast Scalp Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | Move: {point_movement:.2f}pts")
+                                print(f"Scalp Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | Move: {point_movement:.2f}pts")
                                 
                                 spread_offset = 0.27
-                                # Target optimized for quick $25-$50 payout depending on lot size
                                 net_dollar_target = 35.0  
                                 price_move_target = net_dollar_target / (active_lot_size * 100)
                                 total_tp_distance = round(spread_offset + price_move_target, 2)
                                 
-                                # Capped risk safety stop at 4.0 points max
-                                max_sl_distance = 4.0 
+                                # STRICT $400 RISK CAP PER LEG: 
+                                # For a 0.5 lot, $50/pt * 8.0 points = $400 max hard risk cap.
+                                max_sl_distance = 8.0 
                                 
                                 if action == "BUY":
                                     take_profit = round(entry + total_tp_distance, 2)
@@ -143,7 +158,7 @@ async def run_scalping_bot():
                                         symbol="XAUUSDm", volume=active_lot_size, stop_loss=stop_loss, take_profit=take_profit
                                     )
                 
-                await asyncio.sleep(1.0)  # Fast polling for rapid execution
+                await asyncio.sleep(1.0)  
                 
         except Exception as e:
             print(f"Connection or loop error: {e}. Reconnecting in 5 seconds...")
@@ -160,12 +175,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Fast-Scalp Grid ($25-$50 Target) | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active ($400 Risk Cap + Instant Profit Lock | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Fast-Scalp Bot</title>
+        <title>Gold Capital-Protected Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -179,9 +194,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Fast-Scalp Bot (10 Cap)</h1>
+            <h1>Gold Capital-Protected Scalper (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | Fast 0.35pt Trigger for Quick $25-$50 Payouts</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | $400 Hard Risk Cap & Instant Profit Trailing</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
