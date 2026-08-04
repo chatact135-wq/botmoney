@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Fast-Scalp Grid (400$ Risk Cap & Aggressive Profit Lock)")
+app = FastAPI(title="Gold EMA Pullback & Capital-Protected Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -16,9 +16,9 @@ is_bot_running = False
 global_connection = None
 
 async def position_management_loop():
-    """Aggressive 1-second profit-locking engine: Trails stop losses upward instantly as soon as trades go green."""
+    """Institutional 1-second capital protection & dynamic profit-locking engine."""
     global is_bot_running, global_connection
-    print("Aggressive Profit-Lock Trailing Engine online...")
+    print("Capital Protection Trailing Engine online...")
     
     while is_bot_running:
         try:
@@ -35,7 +35,7 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Aggressive trailing as soon as profit hits even $1+ to protect capital
+                    # Instant capital protection: Drag stop-loss to break-even + buffer at the very first dollar of profit
                     if is_buy:
                         if profit >= 15.0:
                             desired_sl = round(open_py + 0.80, 2)
@@ -45,8 +45,8 @@ async def position_management_loop():
                             desired_sl = round(open_py + 0.40, 2)
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 1.0:  # Triggers immediately at the first dollar of profit
-                            desired_sl = round(open_py + 0.05, 2)  # Secure break-even + tiny buffer
+                        elif profit >= 1.0:
+                            desired_sl = round(open_py + 0.05, 2)  # Secure break-even immediately
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -59,8 +59,8 @@ async def position_management_loop():
                             desired_sl = round(open_py - 0.40, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 1.0:  # Triggers immediately at the first dollar of profit
-                            desired_sl = round(open_py - 0.05, 2)  # Secure break-even + tiny buffer
+                        elif profit >= 1.0:
+                            desired_sl = round(open_py - 0.05, 2)  # Secure break-even immediately
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
@@ -77,8 +77,9 @@ async def run_scalping_bot():
     lot_sequence = [0.1, 0.2, 0.5]
     MAX_CONCURRENT_TRADES = 10
     
-    FAST_WINDOW = 8            
-    MIN_POINT_TRIGGER = 0.35   
+    # EMA Pullback Strategy Parameters
+    EMA_PERIOD = 14            # Lookback period for the Exponential Moving Average
+    PULLBACK_THRESHOLD = 0.15  # Maximum distance from EMA to qualify as a valid pullback dip/bounce
     
     while is_bot_running:
         connection = None
@@ -98,9 +99,10 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Fast-Scalp Grid Active ($400 Max Risk Cap per Leg & Instant Capital Protection)...")
+            print("EMA Pullback Scalper Active ($400 Max Risk Cap & Instant Capital Protection)...")
 
             price_history = []
+            current_ema = None
 
             while is_bot_running:
                 price_info = await connection.get_symbol_price("XAUUSDm")
@@ -111,12 +113,25 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    if len(price_history) > FAST_WINDOW:
+                    # Maintain rolling window for EMA calculation
+                    if len(price_history) > EMA_PERIOD * 2:
                         price_history.pop(0)
                         
-                    if len(price_history) == FAST_WINDOW and is_bot_running:
-                        baseline_price = price_history[0]
-                        point_movement = current_price - baseline_price
+                    if len(price_history) >= EMA_PERIOD and is_bot_running:
+                        # Calculate Exponential Moving Average (EMA) dynamically
+                        multiplier = 2 / (EMA_PERIOD + 1)
+                        if current_ema is None:
+                            current_ema = sum(price_history[-EMA_PERIOD:]) / EMA_PERIOD
+                        else:
+                            current_ema = (current_price * multiplier) + (current_ema * (1 - multiplier))
+                            
+                        # Trend Determination: Check macro slope using older price history benchmark
+                        macro_baseline = price_history[-min(len(price_history), 10)]
+                        is_uptrend = current_price > macro_baseline
+                        is_downtrend = current_price < macro_baseline
+                        
+                        # Pullback Check: Is price sitting close to or bouncing off the EMA line?
+                        distance_from_ema = current_price - current_ema
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
@@ -126,15 +141,17 @@ async def run_scalping_bot():
                             layer_index = min(current_open_count, len(lot_sequence) - 1)
                             active_lot_size = lot_sequence[layer_index]
                             
-                            if point_movement >= MIN_POINT_TRIGGER:
+                            # BUY Pullback: Uptrend active, price dipped close to EMA and is pushing upward
+                            if is_uptrend and -0.05 <= distance_from_ema <= PULLBACK_THRESHOLD:
                                 action = "BUY"
                                 entry = current_ask
-                            elif point_movement <= -MIN_POINT_TRIGGER:
+                            # SELL Pullback: Downtrend active, price bounced close to EMA and is pushing downward
+                            elif is_downtrend and -PULLBACK_THRESHOLD <= distance_from_ema <= 0.05:
                                 action = "SELL"
                                 entry = current_bid
                                 
                             if action and is_bot_running:
-                                print(f"Scalp Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | Move: {point_movement:.2f}pts")
+                                print(f"EMA Pullback Trigger | Step {current_open_count + 1} | Action: {action} | Vol: {active_lot_size} | EMA: {current_ema:.2f}")
                                 
                                 spread_offset = 0.27
                                 net_dollar_target = 35.0  
@@ -175,12 +192,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active ($400 Risk Cap + Instant Profit Lock | Max Cap: 10)" if is_bot_running else "Paused"
+    status_text = "Active (EMA Pullback + Capital Protection | Max Cap: 10)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Capital-Protected Scalper</title>
+        <title>Gold EMA Pullback Bot</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -194,9 +211,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Capital-Protected Scalper (10 Cap)</h1>
+            <h1>Gold EMA Pullback Bot (10 Cap)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | $400 Hard Risk Cap & Instant Profit Trailing</p>
+            <p>Execution: Volume Steps (0.1 -> 0.2 -> 0.5 max) | EMA Pullback Entry & Instant Break-Even Lock</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
