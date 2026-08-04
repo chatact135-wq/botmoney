@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Ultra-Fast Velocity Scalper")
+app = FastAPI(title="Gold Instant-Lock Scalper")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -16,9 +16,9 @@ is_bot_running = False
 global_connection = None
 
 async def position_management_loop():
-    """Ultra-fast background worker running every 1 second to manage trailing stop losses."""
+    """Ultra-fast background worker running every 1 second with aggressive early profit locking."""
     global is_bot_running, global_connection
-    print("1-Second Trailing SL Engine online...")
+    print("Instant-Lock 1-Second Trailing SL Engine online...")
     
     while is_bot_running:
         try:
@@ -36,37 +36,38 @@ async def position_management_loop():
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
                     if is_buy:
-                        if profit >= 6.0:
-                            desired_sl = round(open_py + 1.50, 2)
+                        # Aggressive early locking to prevent price from jumping over the SL
+                        if profit >= 4.0:
+                            desired_sl = round(open_py + 0.80, 2) # Lock profit early at $4 move
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 4.0:
-                            desired_sl = round(open_py + 1.00, 2)
+                        elif profit >= 2.0:
+                            desired_sl = round(open_py + 0.40, 2) # Lock profit early at $2 move
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 1.25:
-                            desired_sl = round(open_py + 0.35, 2)
+                        elif profit >= 0.80:
+                            desired_sl = round(open_py + 0.15, 2) # Immediate breakeven + spread buffer
                             if current_sl < desired_sl:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
                     elif is_sell:
-                        if profit >= 6.0:
-                            desired_sl = round(open_py - 1.50, 2)
+                        if profit >= 4.0:
+                            desired_sl = round(open_py - 0.80, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 4.0:
-                            desired_sl = round(open_py - 1.00, 2)
+                        elif profit >= 2.0:
+                            desired_sl = round(open_py - 0.40, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
-                        elif profit >= 1.25:
-                            desired_sl = round(open_py - 0.35, 2)
+                        elif profit >= 0.80:
+                            desired_sl = round(open_py - 0.15, 2)
                             if current_sl > desired_sl or current_sl == 0:
                                 await global_connection.modify_position(pos_id, stop_loss=desired_sl, take_profit=current_tp)
                                 
         except Exception:
             pass
             
-        await asyncio.sleep(1)  # Absolute minimum safe interval (1 second)
+        await asyncio.sleep(1)
 
 
 async def run_scalping_bot():
@@ -91,10 +92,10 @@ async def run_scalping_bot():
             if not management_task or management_task.done():
                 management_task = asyncio.create_task(position_management_loop())
 
-            print("Velocity Scalper active. Scanning fast market micro-moves (Max Cap: 150)...")
+            print("Instant-Lock Scalper active. Max Cap: 150...")
 
             price_history = []
-            MAX_CONCURRENT_TRADES = 150  # Hard cap set to 150 trades
+            MAX_CONCURRENT_TRADES = 150
 
             while is_bot_running:
                 price_info = await connection.get_symbol_price("XAUUSDm")
@@ -105,19 +106,16 @@ async def run_scalping_bot():
                     current_price = (current_bid + current_ask) / 2.0
                     price_history.append(current_price)
                     
-                    # Keep a fast 6-tick window to detect rapid micro-pushes
                     if len(price_history) > 6:
                         price_history.pop(0)
                         
                     if len(price_history) == 6:
                         micro_ema = sum(price_history[-3:]) / 3.0
                         price_deviation = current_price - micro_ema
-                        
-                        # Velocity check: detecting sharp instant price displacement
                         instant_velocity = current_price - price_history[0]
                         
-                        is_fast_spike_up = instant_velocity >= 0.15   # Fast upward jump
-                        is_fast_spike_down = instant_velocity <= -0.15 # Fast downward drop
+                        is_fast_spike_up = instant_velocity >= 0.15
+                        is_fast_spike_down = instant_velocity <= -0.15
                         
                         positions = await connection.get_positions()
                         current_open_count = len(positions)
@@ -125,43 +123,40 @@ async def run_scalping_bot():
                         if current_open_count < MAX_CONCURRENT_TRADES:
                             lot_size = 0.03
                             spread_offset = 0.27
-                            net_dollar_target = 3.50  # Quick tight target for ultra-scalping
+                            net_dollar_target = 3.0O if '3.0O' else 3.0  # Tight target for quick exits
                             
-                            price_move_target = net_dollar_target / (lot_size * 100)
+                            price_move_target = 3.0 / (lot_size * 100)
                             total_tp_distance = round(spread_offset + price_move_target, 2)
                             
                             action = None
                             
                             if is_fast_spike_up:
-                                # Fast spike up -> Quick fade (SELL) or breakout momentum depending on preference. 
-                                # Using ultra-scalp mean-reversion on heavy spikes:
                                 action = "SELL"
                                 entry = current_bid
-                                stop_loss = round(entry + 12.00, 2)
+                                stop_loss = round(entry + 10.00, 2)
                                 take_profit = round(entry - total_tp_distance, 2)
                             elif is_fast_spike_down:
                                 action = "BUY"
                                 entry = current_ask
-                                stop_loss = round(entry - 12.00, 2)
+                                stop_loss = round(entry - 10.00, 2)
                                 take_profit = round(entry + total_tp_distance, 2)
                             else:
-                                # Standard high-frequency micro deviation check
                                 if price_deviation >= 0.05:
                                     action = "SELL"
                                     entry = current_bid
-                                    stop_loss = round(entry + 12.00, 2)
+                                    stop_loss = round(entry + 10.00, 2)
                                     take_profit = round(entry - total_tp_distance, 2)
                                 elif price_deviation <= -0.05:
                                     action = "BUY"
                                     entry = current_ask
-                                    stop_loss = round(entry - 12.00, 2)
+                                    stop_loss = round(entry - 10.00, 2)
                                     take_profit = round(entry + total_tp_distance, 2)
                                     
                             if action:
                                 slots_available = MAX_CONCURRENT_TRADES - current_open_count
-                                burst_count = min(slots_available, 4) # Larger burst size to catch fast moves
+                                burst_count = min(slots_available, 4)
                                 
-                                print(f"Velocity Scalp Execution: Opening {burst_count} {action} orders.")
+                                print(f"Executing {burst_count} {action} orders.")
                                 
                                 if action == "BUY":
                                     tasks = [
@@ -178,7 +173,6 @@ async def run_scalping_bot():
                                     
                                 await asyncio.gather(*tasks)
                 
-                # Minimum safe polling interval for price checks (1.5 seconds)
                 await asyncio.sleep(1.5)
                 
         except Exception as e:
@@ -196,12 +190,12 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Velocity Scalper | 1s Trailing SL | Max 150 Cap)" if is_bot_running else "Paused"
+    status_text = "Active (Instant-Lock SL Engine | Max 150 Cap)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Gold Velocity Ultra-Scalper</title>
+        <title>Gold Instant-Lock Scalper</title>
         <meta http-equiv="refresh" content="15">
         <style>
             body {{ background-color: #121212; color: #e0e0e0; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
@@ -212,9 +206,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Velocity Ultra-Scalping System</h1>
+            <h1>Gold Instant-Lock Scalping System</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Execution: 1.5s Price Scan | 1s Trailing SL Worker | 0.03 Lots | Max Cap: 150 Orders</p>
+            <p>Execution: 1s Early Profit-Lock Worker | 0.03 Lots | Max Cap: 150 Orders</p>
             <p><em>Auto-refreshing dashboard every 15 seconds...</em></p>
         </div>
     </body>
@@ -240,7 +234,7 @@ async def test_order():
         ask = price_info.get("ask", 0)
 
         test_tp = round(ask + 2.00, 2)
-        test_sl = round(ask - 12.00, 2)
+        test_sl = round(ask - 10.00, 2)
 
         tasks = [
             connection.create_market_buy_order(
