@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from metaapi_cloud_sdk import MetaApi
 
-app = FastAPI(title="Gold Bulletproof Resilient System")
+app = FastAPI(title="Gold Resilient System (Cap 6)")
 
 TOKEN = os.getenv("METAAPI_TOKEN", "YOUR_METAAPI_TOKEN")
 ACCOUNT_ID = os.getenv("METAAPI_ACCOUNT_ID")
@@ -57,14 +57,14 @@ async def position_management_loop():
 async def run_resilient_bot():
     """
     Execution Engine:
-    - Sequence: 0.1 -> 0.2 -> 0.3 max.
+    - Sequence: 0.1 -> 0.2 -> 0.3 -> 0.4 -> 0.5 -> 0.6 max (Cap = 6).
     - Stable pacing and clean execution buffers.
     """
     global is_bot_running, global_connection, management_task
     is_bot_running = True
     
-    lot_sequence = [0.1, 0.2, 0.3]
-    MAX_CONCURRENT_TRADES = 3
+    lot_sequence = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    MAX_CONCURRENT_TRADES = 6  # Cap updated to 6
     cooldown_timer = 0
     
     while is_bot_running:
@@ -175,7 +175,7 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
-    status_text = "Active (Resilient Throttled Trailing & Spread Buffer)" if is_bot_running else "Paused"
+    status_text = "Active (Resilient System - Cap 6)" if is_bot_running else "Paused"
     return f"""
     <!DOCTYPE html>
     <html>
@@ -195,9 +195,9 @@ async def read_dashboard():
     </head>
     <body>
         <div class="container">
-            <h1>Gold Resilient System (24/5)</h1>
+            <h1>Gold Resilient System (Cap 6)</h1>
             <p>Status: <span class="status">{status_text}</span></p>
-            <p>Progression: 0.1 -> 0.2 -> 0.3 | Throttled Safe Trailing</p>
+            <p>Progression: Up to 6 Trades (0.1 -> 0.6) | Throttled Safe Trailing</p>
             <br>
             <a href="/pause" class="btn btn-pause">Pause Bot</a>
             <a href="/resume" class="btn btn-resume">Resume Bot</a>
