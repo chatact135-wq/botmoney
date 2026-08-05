@@ -122,7 +122,7 @@ def analyze_breakout(data, pair: str, db: Session):
             return {"action": "WAIT", "reason": "Paused: Time limit (8:30 PM UAE)", "entry": round(close, decimals), "sl": "-", "tp": "-", "support": round(lowest_low, decimals), "resistance": round(highest_high, decimals), "timestamp": 0}
 
         action = "WAIT"
-        reason = f"Scanning Breakout. Ceiling: ${round(highest_high, decimals)} \vert{} Floor:${round(lowest_low, decimals)}"
+        reason = f"Scanning Breakout. Ceiling: ${round(highest_high, decimals)} | Floor: ${round(lowest_low, decimals)}"
 
         if close > highest_high:
             action = "BUY"
@@ -159,7 +159,7 @@ def analyze_pullback(data, pair: str, db: Session):
             return {"action": "WAIT", "reason": "Paused: Time limit (8:30 PM UAE)", "entry": round(close, decimals), "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
         action = "WAIT"
-        reason = f"Trend: {'BULLISH' if close > ema_50 else 'BEARISH'} (50 EMA: ${round(ema_50, decimals)}) \vert{} 20 EMA:${round(ema_20, decimals)}"
+        reason = f"Trend: {'BULLISH' if close > ema_50 else 'BEARISH'} (50 EMA: ${round(ema_50, decimals)}) | 20 EMA: ${round(ema_20, decimals)}"
 
         if close > ema_50 and low <= ema_20 and close > open_p:
             action = "BUY"
@@ -202,7 +202,7 @@ def analyze_fvg(data, pair: str, db: Session):
                 res = float(c3["low"])
                 sl = supp - (atr * 1.0)
                 tp = close + (atr * 2.0)
-                reason = f"Bullish FVG Identified: Gap between ${round(supp, decimals)} -${round(res, decimals)}"
+                reason = f"Bullish FVG Identified: Gap between ${round(supp, decimals)} - ${round(res, decimals)}"
 
         elif c3["high"] < c1["low"]:
             fvg_size = c1["low"] - c3["high"]
@@ -212,7 +212,7 @@ def analyze_fvg(data, pair: str, db: Session):
                 supp = float(c3["high"])
                 sl = res + (atr * 1.0)
                 tp = close - (atr * 2.0)
-                reason = f"Bearish FVG Identified: Gap between ${round(supp, decimals)} -${round(res, decimals)}"
+                reason = f"Bearish FVG Identified: Gap between ${round(supp, decimals)} - ${round(res, decimals)}"
 
         return process_signal("fvg", pair, action, close, sl, tp, supp, res, reason, candle_time, db)
     except Exception as e:
@@ -279,7 +279,7 @@ def analyze_asian_sweep(data, pair: str, db: Session):
         candle_time = current["datetime"]
 
         action = "WAIT"
-        reason = f"Asian High: ${round(asian_high, decimals)} \vert{} Asian Low:${round(asian_low, decimals)}"
+        reason = f"Asian High: ${round(asian_high, decimals)} | Asian Low: ${round(asian_low, decimals)}"
 
         if low < asian_low and close > asian_low and close > open_p:
             action = "BUY"
@@ -546,7 +546,6 @@ async def run_execution_bot():
                     await asyncio.sleep(1)
                     continue
 
-                # Check active positions count and basket direction
                 positions = await connection.get_positions()
                 current_open_count = len(positions)
                 
@@ -563,7 +562,6 @@ async def run_execution_bot():
                         break
 
                 if can_open:
-                    # Scan LATEST_SIGNALS across engines to see if any engine fired a valid trade signal
                     action = None
                     for pair, systems in LATEST_SIGNALS.items():
                         for sys_key, sig in systems.items():
@@ -583,7 +581,7 @@ async def run_execution_bot():
                         
                         if current_bid and current_ask:
                             if current_open_count > 0:
-                                action = active_direction # Maintain basket direction
+                                action = active_direction 
                             
                             entry = current_ask if action == "BUY" else current_bid
                             tp_dist = 25.00
