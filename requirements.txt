@@ -1,4 +1,4 @@
-fastapi==0.110.0
+Fastapi==0.110.0
 uvicorn==0.28.0
 sqlalchemy==2.0.36
 pandas==2.2.3
@@ -6,3 +6,4 @@ numpy>=2.0.0
 requests==2.31.0
 pydantic==2.8.2
 metaapi-cloud-sdk>=29.1.1
+jinja2
