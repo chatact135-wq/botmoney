@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from database import engine, SessionLocal, Base, ScalpJournal, get_db
+from database import SessionLocal, Base, ScalpJournal, get_db
 from metaapi_cloud_sdk import MetaApi
 
 app = FastAPI()
