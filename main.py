@@ -37,12 +37,10 @@ LATEST_SIGNALS = {
 last_logged_signal = {sys_key: {} for sys_key in SYSTEM_KEYS}
 signal_timestamps = {}
 
-# Global execution states for background bot management
 is_bot_running = True
 global_connection = None
 management_task = None
 
-# Internal Database Dependency Generator
 def get_db():
     db = SessionLocal()
     try:
@@ -77,7 +75,6 @@ def fetch_market_data(symbol: str):
     except Exception as e:
         return f"Fetch Exception: {str(e)}"
 
-# Indicator Helper Functions
 def calc_ema(df, span):
     return df['close'].ewm(span=span, adjust=False).mean()
 
@@ -109,7 +106,6 @@ def calc_adx(df, period=14):
     adx = dx.ewm(alpha=1/period, adjust=False).mean()
     return adx, plus_di, minus_di
 
-# 1. Breakout System
 def analyze_breakout(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -145,7 +141,6 @@ def analyze_breakout(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 2. EMA Pullback System
 def analyze_pullback(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -183,7 +178,6 @@ def analyze_pullback(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 3. Fair Value Gap (FVG) System
 def analyze_fvg(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -226,7 +220,6 @@ def analyze_fvg(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 4. ADX + RSI Momentum System
 def analyze_adx_rsi(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -264,7 +257,6 @@ def analyze_adx_rsi(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 5. Asian Session Liquidity Sweep
 def analyze_asian_sweep(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -303,7 +295,6 @@ def analyze_asian_sweep(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 6. Market Structure Shift (MSS) System
 def analyze_mss(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -345,7 +336,6 @@ def analyze_mss(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 7. Volume Profile System
 def analyze_volume(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -388,7 +378,6 @@ def analyze_volume(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# 8. Candlestick Patterns System
 def analyze_candlesticks(data, pair: str, db: Session):
     decimals = 2
     if isinstance(data, str) or data is None or len(data) < 60:
@@ -437,7 +426,6 @@ def analyze_candlesticks(data, pair: str, db: Session):
     except Exception as e:
         return {"action": "WAIT", "reason": f"Math Error: {str(e)}", "entry": "-", "sl": "-", "tp": "-", "support": "-", "resistance": "-", "timestamp": 0}
 
-# Shared Signal Processing & Database Logging
 def process_signal(sys_key, pair, action, entry, sl, tp, support, resistance, reason, candle_time, db: Session):
     global last_logged_signal, signal_timestamps
     decimals = 2
@@ -485,9 +473,6 @@ def process_signal(sys_key, pair, action, entry, sl, tp, support, resistance, re
 
     return signal
 
-# -------------------------------------------------------------------------
-# Automated Live Trading & 0.3s Dynamic Trailing Engine (Cap: 6, Sequence: 0.1 -> 0.6)
-# -------------------------------------------------------------------------
 async def position_management_loop():
     global is_bot_running, global_connection
     print("Resilient Trailing Engine online (0.3s interval)...")
@@ -613,9 +598,6 @@ async def run_execution_bot():
             print(f"Execution Bridge Error: {e}. Reconnecting in 5s...")
             await asyncio.sleep(5)
 
-# -------------------------------------------------------------------------
-# Background Market Data Polling Loop
-# -------------------------------------------------------------------------
 async def background_bot_loop():
     while True:
         db = SessionLocal()
