@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from database import engine, SessionLocal, Base, TradeJournal, get_db
+from database import engine, SessionLocal, Base, ScalpJournal, get_db
 from metaapi_cloud_sdk import MetaApi
 
 app = FastAPI()
@@ -462,7 +462,7 @@ def process_signal(sys_key, pair, action, entry, sl, tp, support, resistance, re
                     "volume_profile": "Volume Profile",
                     "candlesticks": "Candle Pattern"
                 }
-                db.add(TradeJournal(
+                db.add(ScalpJournal(
                     pair=pair,
                     action=f"{action} ({sys_label_map.get(sys_key, sys_key)})",
                     entry_price=signal["entry"],
@@ -499,7 +499,6 @@ async def position_management_loop():
                     is_buy = pos_type in [0, "POSITION_TYPE_BUY", "buy"]
                     is_sell = pos_type in [1, "POSITION_TYPE_SELL", "sell"]
                     
-                    # Safe broker-compliant trailing step ($2.00+ net profit spread buffer)
                     if is_buy and profit >= 2.00:
                         desired_sl = round(open_price + 0.80, 2)
                         if current_sl < desired_sl:
@@ -644,7 +643,7 @@ async def dashboard(request: Request):
 @app.get("/journal", response_class=HTMLResponse)
 async def journal_page(request: Request, db: Session = Depends(get_db)):
     try: 
-        trades = db.query(TradeJournal).order_by(TradeJournal.timestamp.desc()).limit(100).all()
+        trades = db.query(ScalpJournal).order_by(ScalpJournal.timestamp.desc()).limit(100).all()
     except Exception: 
         trades = []
     return templates.TemplateResponse(request=request, name="journal.html", context={"trades": trades})
