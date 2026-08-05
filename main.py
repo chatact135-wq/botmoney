@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from database import engine, SessionLocal, Base, ScalpJournal, get_db
+from database import engine, SessionLocal, Base, ScalpJournal
 from metaapi_cloud_sdk import MetaApi
 
 app = FastAPI()
@@ -41,6 +41,13 @@ signal_timestamps = {}
 is_bot_running = True
 global_connection = None
 management_task = None
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 def fetch_market_data(symbol: str):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=150&apikey={TWELVEDATA_API_KEY}"
